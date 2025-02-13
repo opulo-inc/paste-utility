@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/lumen-icon-wA_suQRQ.png">
+    <link rel="shortcut icon" type="image/x-icon" href="/assets/lumen-icon-wA_suQRQ.png">
+    <title>LumenPnP Pasting Utility</title>
+    <script type="module" crossorigin src="/assets/index-xHK6INDJ.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-TD_6hwFj.css">
+  </head>
+  <body>
+    <div id="header-pill"><h1>LumenPnP Pasting Utility</h1></div>
+    <button id="connect" type="button">Connect</button>
+    <div id="main-app">
+
+
+
+      <div id="topRow">
+        <div id="capture" class="halfwidth">
+          <h2 style="width:100%">Capture Positions</h2>
+          <button id="capture-button" type="button">Capture</button>
+          <button id="export-captured" type="buttom">Export</button>
+          <div id="capture-output">
+          </div>
+
+        </div>
+        <div id="load-run" class="halfwidth">
+          <h2 style="width:100%">Load and Run</h2>
+          <form id="pastingForm">
+            <p>Dispense Degrees:</p><input type="number" name="dispenseDeg" min="5" max="300" value="30"/>
+            <p>Retraction Degrees:</p><input type="number" name="retractionDeg" min="1" max="200" value="1"/>
+            <p>Dwell Milliseconds:</p><input type="number" name="dwellMs" min="0" max="5000" value="100"/>
+            <br />
+            <input type="file" name="dataFile" accept="application/json" />
+            <br />
+            <button type="submit" name="generate" required>Generate</button>
+            <button type="submit" name="execute" required>Execute</button>
+          </form>
+
+          <div id="generatedDiv">
+            <pre id="generatedGcode"></pre>
+          </div>
+          
+
+        </div>
+
+        
+
+      </div>
+
+      <div id="repl">
+        <div id="console"></div>
+        <button id="send" type="button">Send</button>
+        <input id="repl-input" type="text" placeholder="Send Gcode"/>
+      </div>
+
+  
+      
+    </div>
+    <div id="footer"><img src="/assets/opulo-gold-alpha-tiny-DUNq2d90.png"></div>
+    
+    <div id="modal">
+      <div class="flex">
+        <img src="/assets/lumen-icon-wA_suQRQ.png">
+        <button id="modal-close" class="btn-close">⨉</button>
+        
+      </div>
+
+      <h2 id="modal-title">test</h2>
+      <p id="modal-content">test</p>
+      <input id="modal-num-input" min="1" max="254" type="number">
+      <div class="flex">
+        <button id="modal-ng">Cancel</button>
+        <button id="modal-ok">OK</button>
+      </div>
+      
+      
+
+      
+      
+    </div>
+    <div id="overlay"></div>
+
+  </body>
+</html>
