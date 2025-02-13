@@ -149,8 +149,19 @@ label {
 }
 
 
+.position-item {
+  background-color: #888;
+  margin-top:5px;
+  padding:5px;
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
 
+}
 
+.position-item button {
+  
+}
 
 
 

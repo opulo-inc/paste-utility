@@ -33,6 +33,8 @@ document.getElementById("modal-ng").addEventListener("click", () => {
   modal.hide();
 });
 
+
+
 //clears the contents of the repl text field
 function clearReplInput(){
   document.getElementById("repl-input").value = "";
@@ -87,6 +89,10 @@ document.getElementById("connect").addEventListener("click", () => {
 document.getElementById("send").addEventListener("click", () => {
   serial.sendRepl();
   clearReplInput();
+});
+
+document.getElementById("home").addEventListener("click", () => {
+  serial.send(["G28"]);
 });
 
 
