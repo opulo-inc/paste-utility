@@ -1,0 +1,247 @@
+import './style.css'
+import { modalManager } from './modal.js'
+import { serialManager } from './serialManager.js';
+import { feederBus } from './feederBus';
+import { commands } from './commands.js'
+
+let modal = new modalManager();
+let serial = new serialManager(modal);
+let feeder = new feederBus(serial, modal);
+
+document.getElementById("modal-close").addEventListener("click", () => {
+  modal.receivedInput = false;
+  modal.hide();
+});
+
+document.getElementById("modal-ok").addEventListener("keyup", function(event) {
+  if (event.code === "Enter"){
+    event.preventDefault();
+    modal.receivedInput = true;
+    modal.hide();
+  }
+});
+
+document.getElementById("modal-ok").addEventListener("click", () => {
+  modal.receivedInput = true;
+  modal.hide();
+});
+
+document.getElementById("modal-ng").addEventListener("click", () => {
+  modal.receivedInput = false;
+  modal.hide();
+});
+
+//clears the contents of the repl text field
+function clearReplInput(){
+  document.getElementById("repl-input").value = "";
+}
+
+// clicks the send button if you hit the enter key while repl filed is focused
+document.getElementById("repl-input").addEventListener("keyup", function(event) {
+  if (event.code === "Enter"){
+    event.preventDefault();
+    document.getElementById("send").click();
+  }
+  else if (event.code === "ArrowUp"){
+    event.preventDefault();
+
+    //check to see that our index isnt at the end of commands sent
+    if(serial.sentCommandBufferIndex == serial.sentCommandBuffer.length - 1){
+      return false;
+    }
+    //update the buffer index
+    serial.sentCommandBufferIndex++;
+    //then drop that new element into the field
+    document.getElementById("repl-input").value = serial.sentCommandBuffer[serial.sentCommandBufferIndex];
+
+  }
+  else if (event.code === "ArrowDown"){
+    event.preventDefault();
+
+    //check to see that our index isnt at the end of commands sent
+    if(serial.sentCommandBufferIndex == 0){
+      return false;
+    }
+    //update the buffer index
+    serial.sentCommandBufferIndex--;
+    //then drop that new element into the field
+    document.getElementById("repl-input").value = serial.sentCommandBuffer[serial.sentCommandBufferIndex];
+
+  }
+});
+
+
+function test(){
+  setTimeout(() => {
+    console.log("timeout triggered!")
+  }, 2000);
+}
+
+document.getElementById("test").addEventListener("click", () => {
+  test();
+});
+
+document.getElementById("connect").addEventListener("click", () => {
+  serial.connect();
+});
+
+document.getElementById("send").addEventListener("click", () => {
+  serial.sendRepl();
+  clearReplInput();
+});
+
+
+document.addEventListener("keyup", function(event) {
+
+  if(event.getModifierState("Shift") && !event.getModifierState("Alt")){
+    if (event.code === "ArrowUp"){
+      console.log("we saw shift arrow up!")
+      serial.send(["G91", "G0 Y10", "G90"]);
+    }
+    else if (event.code === "ArrowDown"){
+      console.log("we saw shift arrow down!")
+      serial.send(["G91", "G0 Y-10", "G90"]);
+    }
+    else if (event.code === "ArrowLeft"){
+      console.log("we saw shift arrow left!")
+      serial.send(["G91", "G0 X-10", "G90"]);
+    }
+    else if (event.code === "ArrowRight"){
+      console.log("we saw shift arrow right!")
+      serial.send(["G91", "G0 X10", "G90"]);
+    }
+    else if (event.code === "BracketLeft"){
+      console.log("we saw shift comma!")
+      serial.send(["G91", "G0 Z-10", "G90"]);
+    }
+    else if (event.code === "BracketRight"){
+      console.log("we saw shift period!")
+      serial.send(["G91", "G0 Z10", "G90"]);
+    }
+  }
+
+  else if(!event.getModifierState("Shift") && event.getModifierState("Alt")){
+    if (event.code === "ArrowUp"){
+      console.log("we saw shift arrow up!")
+      serial.send(["G91", "G0 Y1", "G90"]);
+    }
+    else if (event.code === "ArrowDown"){
+      console.log("we saw shift arrow down!")
+      serial.send(["G91", "G0 Y-1", "G90"]);
+    }
+    else if (event.code === "ArrowLeft"){
+      console.log("we saw shift arrow left!")
+      serial.send(["G91", "G0 X-1", "G90"]);
+    }
+    else if (event.code === "ArrowRight"){
+      console.log("we saw shift arrow right!")
+      serial.send(["G91", "G0 X1", "G90"]);
+    }
+    else if (event.code === "BracketLeft"){
+      console.log("we saw shift comma!")
+      serial.send(["G91", "G0 Z-1", "G90"]);
+    }
+    else if (event.code === "BracketRight"){
+      console.log("we saw shift period!")
+      serial.send(["G91", "G0 Z1", "G90"]);
+    }
+  }
+
+  else if(event.getModifierState("Shift") && event.getModifierState("Alt")){
+    if (event.code === "ArrowUp"){
+      console.log("we saw shift arrow up!")
+      serial.send(["G91", "G0 Y0.1", "G90"]);
+    }
+    else if (event.code === "ArrowDown"){
+      console.log("we saw shift arrow down!")
+      serial.send(["G91", "G0 Y-0.1", "G90"]);
+    }
+    else if (event.code === "ArrowLeft"){
+      console.log("we saw shift arrow left!")
+      serial.send(["G91", "G0 X-0.1", "G90"]);
+    }
+    else if (event.code === "ArrowRight"){
+      console.log("we saw shift arrow right!")
+      serial.send(["G91", "G0 X0.1", "G90"]);
+    }
+    else if (event.code === "BracketLeft"){
+      console.log("we saw shift comma!")
+      serial.send(["G91", "G0 Z-0.1", "G90"]);
+    }
+    else if (event.code === "BracketRight"){
+      console.log("we saw shift period!")
+      serial.send(["G91", "G0 Z0.1", "G90"]);
+    }
+  }
+  
+});
+
+
+const pastingForm = document.getElementById("pastingForm");
+const generatedGcodeOutput = document.getElementById("generatedGcode");
+
+pastingForm.addEventListener("submit", async (e) => {
+  e.preventDefault();  // Don't let the form submit the page.
+  const action = e.submitter.name;  // either "generate" or "execute"
+  const formData = new FormData(pastingForm);
+  const data = Object.fromEntries(formData.entries());
+
+  data.fileData = JSON.parse(await data.dataFile.text());
+  delete data.dataFile;
+
+
+  const gcode = generateGCode(data.fileData, data);
+  generatedGcodeOutput.innerHTML = gcode.join("\n");
+
+  if (action != "execute") {
+    return;
+  }
+
+  modal.show("Ensure Nozzles Are Level", "Manually level the nozzles before hitting ok.");
+
+  console.log("now we'll execute!!");
+
+  serial.send(gcode)
+});
+
+
+
+function generateGCode(positions, {dispenseDeg, retractionDeg, dwellMs}) {
+
+  const commands = [];
+
+  commands.push(
+    "G90",          // set to absolute mode
+    "G28",          // home all axis
+    "G28",
+    "G92 B0"        // reset b axis to 0
+  );
+
+  let currentB = 0;
+
+  //cast to floats
+  dispenseDeg = parseFloat(dispenseDeg);
+  retractionDeg = parseFloat(retractionDeg);
+  dwellMs = parseFloat(dwellMs);
+
+  for(const [x, y, z] of positions) {
+
+    const dispenseAbsPos = currentB + dispenseDeg;
+    const retractionAbsPos = dispenseAbsPos - retractionDeg;
+
+    commands.push(
+      `G0 X${x} Y${y}`,                 // Move over
+      `G0 Z${z}`,                       // Move z down
+      `G0 B${dispenseAbsPos}`,          // Extrude paste
+      `G0 B${retractionAbsPos}`,        // Retract a small amount
+      `G4 P${dwellMs}`,                 // Dwell and wait for paste to actually extrude
+      "G0 Z31.5",                       // Move safe z
+    );
+
+    currentB = retractionAbsPos;
+  }
+
+  commands.push("G0 X300 Y400");
+
+  return commands;
+}
