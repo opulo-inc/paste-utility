@@ -8,6 +8,8 @@ let modal = new modalManager();
 let serial = new serialManager(modal);
 let feeder = new feederBus(serial, modal);
 
+let positions = [];
+
 document.getElementById("modal-close").addEventListener("click", () => {
   modal.receivedInput = false;
   modal.hide();
@@ -70,15 +72,12 @@ document.getElementById("repl-input").addEventListener("keyup", function(event) 
   }
 });
 
+document.getElementById("capture-button").addEventListener("click", () => {
+  capture();
+});
 
-function test(){
-  setTimeout(() => {
-    console.log("timeout triggered!")
-  }, 2000);
-}
-
-document.getElementById("test").addEventListener("click", () => {
-  test();
+document.getElementById("export-captured").addEventListener("click", () => {
+  exportCaptured();
 });
 
 document.getElementById("connect").addEventListener("click", () => {
@@ -176,6 +175,77 @@ document.addEventListener("keyup", function(event) {
   
 });
 
+function exportCaptured(){
+  //this function needs to save the positions array to a file
+  //after convertiong it to a json object
+  // it also needs to give the user the opportunity to name it
+  //and save it to their computer
+  const data = JSON.stringify(positions);
+  const blob = new Blob([data], {type: 'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href =
+    URL.createObjectURL(blob);
+  a.download = 'positions.json';
+  a.click();
+  URL.revokeObjectURL(url);
+
+}
+
+async function capture(){
+  
+  serial.clearInspectBuffer();
+
+  await serial.send(["G92"])
+
+  const pattern = /X:(.*?) Y:(.*?) Z:(.*?) A:(.*?) B:(.*?) /
+
+  const re = new RegExp(pattern, 'i');
+
+  console.log("serial inspect buffer: ",serial.inspectBuffer)
+
+  for (var i=0; i < serial.inspectBuffer.length; i++) {
+
+      let currLine = serial.inspectBuffer[i];
+      console.log(currLine);
+      
+      let result = re.test(currLine);
+
+      if(result){
+        const matches = re.exec(currLine)
+
+        let newPositionArray = [matches[1], matches[2], matches[3]];
+        positions.push(newPositionArray);
+
+        // Create a new div element
+        const newDiv = document.createElement("div");
+        newDiv.className = "position-item";
+        newDiv.innerHTML = `Position: ${newPositionArray.join(", ")} <button class="remove-btn">X</button>`;
+        
+        // Append the new div to the capture-output div
+        document.getElementById("capture-output").appendChild(newDiv);
+        
+        // Add event listener to the remove button
+        newDiv.querySelector(".remove-btn").addEventListener("click", function() {
+          // Remove the div from the DOM
+          newDiv.remove();
+
+          // Remove the position from the array
+          const index = positions.indexOf(newPositionArray);
+          if (index > -1) {
+            positions.splice(index, 1);
+          }
+
+          console.log("positions: ",positions);
+          
+        });
+      }
+  }
+
+  console.log("positions: ",positions);
+  
+}
+
 
 const pastingForm = document.getElementById("pastingForm");
 const generatedGcodeOutput = document.getElementById("generatedGcode");
@@ -197,11 +267,15 @@ pastingForm.addEventListener("submit", async (e) => {
     return;
   }
 
-  modal.show("Ensure Nozzles Are Level", "Manually level the nozzles before hitting ok.");
+  let resp = modal.show("Ensure Nozzles Are Level", "Manually level the nozzles before hitting ok.");
 
-  console.log("now we'll execute!!");
+  console.log("now we'll execute!!", resp);
 
-  serial.send(gcode)
+  resp.then((result) => {
+    console.log(result);
+    serial.send(gcode);
+
+  })
 });
 
 

@@ -8,6 +8,7 @@ export class serialManager {
         this.modal = modal;
 
         this.receiveBuffer = [];
+        this.inspectBuffer = [];
 
         this.sentCommandBuffer = [""];
         this.sentCommandBufferIndex = 0;
@@ -54,6 +55,12 @@ export class serialManager {
     clearBuffer(){
         while(this.receiveBuffer.length > 0){
             this.receiveBuffer.shift();
+        }
+    }
+
+    clearInspectBuffer(){
+        while(this.inspectBuffer.length > 0){
+            this.inspectBuffer.shift();
         }
     }
 
@@ -127,9 +134,11 @@ export class serialManager {
             while(metabuffer.indexOf("\n") != -1){
                 let splitted = metabuffer.split('\n');
                 // console.log(splitted)
-                this.receiveBuffer.push(splitted[0])
+                this.receiveBuffer.push(splitted[0]);
 
                 this.appendToConsole(splitted[0], false);
+                this.inspectBuffer.push(splitted[0]);
+                console.log("current inspect buffer", this.inspectBuffer)
 
                 metabuffer = metabuffer.split('\n').slice(1).join('\n');
             }
@@ -158,7 +167,7 @@ export class serialManager {
                 console.log("timeout triggered");
                 this.okRespTimeout = true;
                 resolve();
-            }, 10000);
+            }, 5000);
         });
     }
 
@@ -181,7 +190,9 @@ export class serialManager {
                 if(this.okRespTimeout) break;
 
                 let firstElement = this.receiveBuffer.shift();
-                console.log("first element: ",firstElement);
+                //console.log("first element: ",firstElement);
+
+                //this.inspectBuffer.push(firstElement);
 
                 if(firstElement == 'ok'){
                     clearTimeout(this.timeoutID);
@@ -194,12 +205,11 @@ export class serialManager {
                     this.setOkRespTimeout();
                 }
 
-                console.log("whole buffer: ",this.receiveBuffer);
+                //console.log("whole buffer: ",this.receiveBuffer);
 
                 await new Promise(resolve => setTimeout(resolve, 50)); // Small delay to avoid busy-waiting
 
             }
-            
 
             this.okRespTimeout = false;
 
