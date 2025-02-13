@@ -155,9 +155,10 @@ export class serialManager {
     async setOkRespTimeout(){
         new Promise(resolve => {
             this.timeoutID = setTimeout(() => {
+                console.log("timeout triggered");
                 this.okRespTimeout = true;
                 resolve();
-            }, 3000);
+            }, 10000);
         });
     }
 
@@ -182,7 +183,10 @@ export class serialManager {
                 let firstElement = this.receiveBuffer.shift();
                 console.log("first element: ",firstElement);
 
-                if(firstElement == 'ok') break;
+                if(firstElement == 'ok'){
+                    clearTimeout(this.timeoutID);
+                    break;
+                }
 
                 if(firstElement = "echo:busy: processing"){
                     //do something to extend timeout
