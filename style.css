@@ -182,6 +182,9 @@ label {
 #pendant {
   display: flex;
   flex-flow: row nowrap;
+
+  flex-grow: 2;
+  
 }
 
 #pendant-buttons {
@@ -189,13 +192,17 @@ label {
   flex-flow: column nowrap;
   justify-content: space-around;
   align-items: center;
-  width: 200px;
+
+  flex-grow:2;
+  margin:10px;
 }
 
 #capture-buttons {
   display: flex;
   flex-flow: column nowrap;
   justify-content: space-around;
+  flex-grow:1;
+  align-items: center;
 }
 
 #generatedGcode {
@@ -228,7 +235,8 @@ datalist {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  width: 200px;
+  height:200px;
+  
 }
 
 option {
@@ -237,16 +245,31 @@ option {
 
 input[type="range"] {
   height: 200px;
-  margin: 0;
+  margin:0px;
   writing-mode: vertical-lr;
 }
 
+.alignbuttonsvert {
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.alignEvenlyHoriz {
+  display: flex;
+  flex-flow: row nowrap;
+  justify-content: space-around;
+  align-items: center;
+}
 
 
 #speed-slider {
   display: flex;
   flex-flow: row nowrap;
-  width:50px;
+  width:100px;
+  align-items: center;
+
 }
 
 
@@ -361,6 +384,7 @@ button {
   color: #eee;
   cursor: pointer;
   transition: border-color 0.25s;
+  margin:2px;
 }
 button:hover {
   border-color: #daa520;

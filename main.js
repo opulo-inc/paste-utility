@@ -146,6 +146,16 @@ document.getElementById("jog-zm").addEventListener("click", () => {
   serial.send(["G91", `G0 Z-${dist}`, "G90"]);
 });
 
+document.getElementById("jog-bp").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 B${dist}`, "G90"]);
+});
+
+document.getElementById("jog-bm").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 B-${dist}`, "G90"]);
+});
+
 
 document.addEventListener("keyup", function(event) {
 
