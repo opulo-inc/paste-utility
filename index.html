@@ -7,15 +7,13 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/lumen-icon-wA_suQRQ.png">
     <link rel="shortcut icon" type="image/x-icon" href="/assets/lumen-icon-wA_suQRQ.png">
     <title>LumenPnP Pasting Utility</title>
-    <script type="module" crossorigin src="/assets/index-5A1klD1L.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CxVsAWrf.css">
+    <script type="module" crossorigin src="/assets/index-vlcE47hu.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-lSb6vL0-.css">
   </head>
   <body>
     <div id="header-pill"><h1>LumenPnP Pasting Utility</h1></div>
     <button id="connect" type="button">Connect</button>
     <div id="main-app">
-
-
 
       <div id="topRow">
         <div id="capture" class="thirdwidth">
@@ -23,14 +21,56 @@
           <p>
             After connecting, hold <code>option</code> and use arrow keys to move the head, and <code>[ ]</code> to move in Z. Hold <code>shift</code> instead to move faster.
           </p>
-          <button id="home" type="button">Home</button>
-          <button id="capture-button" type="button">Capture</button>
-          <button id="export-captured" type="buttom">Export</button>
+
+          <div id="capture-controls">
+            <div id="pendant">
+              <div id="pendant-buttons">
+                <button id="jog-yp" type="button">Y+</button>
+                <div>
+                  <button id="jog-xm" type="button">X-</button>
+                
+                  <button id="jog-xp" type="button">X+</button>
+                </div>
+                
+                <button id="jog-ym" type="button">Y-</button>
+                <br />
+                <button id="jog-zm" type="button">Head Up</button>
+                <button id="jog-zp" type="button">Head Down</button>
+                
+
+              </div>
+              
+              <div id="speed-slider">
+                <input type="range" writing-mode="vertical-lr" id="jog-distance" list="markers" orient="vertical" step="1" min="1" max="4" value="3" />
+                <datalist id="markers">
+                  <option value="1" label="0.1mm"></option>
+                  <option value="2" label="1mm"></option>
+                  <option value="3" label="10mm"></option>
+                  <option value="4" label="100mm"></option>
+                </datalist>
+              </div>
+              
+
+            </div>
+            <div id="capture-buttons">
+              <button id="home" type="button">Home</button> <br />
+              <button id="capture-button" type="button">Capture</button><br />
+              <button id="export-captured" type="buttom">Export</button>
+            </div>
+            
+          </div>
           <div id="capture-output">
           </div>
-
+        
         </div>
-        <div id="load-run" class="halfwidth">
+
+
+          
+        
+
+      
+
+        <div id="load-run" class="thirdwidth">
           <h2 style="width:100%">Load and Run</h2>
           <form id="pastingForm">
             <p>Dispense Degrees:</p><input type="number" name="dispenseDeg" min="5" max="300" value="30"/>
@@ -40,18 +80,17 @@
             <input type="file" name="dataFile" accept="application/json" />
             <br />
             <button type="submit" name="generate" required>Generate</button>
+            <br />
             <button type="submit" name="execute" required>Execute</button>
           </form>
-
-          <div id="generatedDiv">
-            <pre id="generatedGcode"></pre>
-          </div>
           
 
         </div>
 
-        
-
+        <div id="generatedDiv" class="thirdwidth">
+          <h2 style="width:100%">Generated Gcode</h2>
+          <pre id="generatedGcode"></pre>
+        </div>
       </div>
 
       <div id="repl">
@@ -60,9 +99,8 @@
         <input id="repl-input" type="text" placeholder="Send Gcode"/>
       </div>
 
-  
-      
     </div>
+
     <div id="footer"><img src="/assets/opulo-gold-alpha-tiny-DUNq2d90.png"></div>
     
     <div id="modal">
@@ -85,6 +123,7 @@
       
       
     </div>
+
     <div id="overlay"></div>
 
   </body>
