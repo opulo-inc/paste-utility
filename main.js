@@ -95,6 +95,57 @@ document.getElementById("home").addEventListener("click", () => {
   serial.send(["G28"]);
 });
 
+// jog pendant event listeners
+
+function getJogDistance(){
+  let distLUT = document.getElementById("jog-distance").value;
+  if(distLUT == "1"){
+    return 0.1;
+  }
+  else if(distLUT == "2"){
+    return 1;
+  }
+  else if(distLUT == "3"){ 
+    return 10;
+  }
+  else if(distLUT == "4"){
+    return 100;
+  }
+  else{
+    return 1;
+  }
+}
+
+document.getElementById("jog-yp").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 Y${dist}`, "G90"]);
+});
+
+document.getElementById("jog-ym").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 Y-${dist}`, "G90"]);
+});
+
+document.getElementById("jog-xp").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 X${dist}`, "G90"]);
+});
+
+document.getElementById("jog-xm").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 X-${dist}`, "G90"]);
+});
+
+document.getElementById("jog-zp").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 Z${dist}`, "G90"]);
+});
+
+document.getElementById("jog-zm").addEventListener("click", () => {
+  let dist = getJogDistance();
+  serial.send(["G91", `G0 Z-${dist}`, "G90"]);
+});
+
 
 document.addEventListener("keyup", function(event) {
 
@@ -267,6 +318,7 @@ pastingForm.addEventListener("submit", async (e) => {
 
 
   const gcode = generateGCode(data.fileData, data);
+  generatedGcodeOutput.style.display = "block";
   generatedGcodeOutput.innerHTML = gcode.join("\n");
 
   if (action != "execute") {
@@ -325,3 +377,4 @@ function generateGCode(positions, {dispenseDeg, retractionDeg, dwellMs}) {
 
   return commands;
 }
+

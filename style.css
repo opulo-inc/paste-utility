@@ -159,18 +159,95 @@ label {
 
 }
 
-.position-item button {
+#capture-controls {
   
+  display:flex;
+  justify-content: space-around;
+  align-items: center;
+}
+
+#capture-output {
+  max-height: 220px;
+  
+  overflow-y:auto;
+  overflow-x:auto;
+  position:relative;
+  scroll-snap-type:proximity;
+  font-family: monospace;
+  margin-top: 10px;
+  width:100%;
+
+}
+
+#pendant {
+  display: flex;
+  flex-flow: row nowrap;
+}
+
+#pendant-buttons {
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: space-around;
+  align-items: center;
+  width: 200px;
+}
+
+#capture-buttons {
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: space-around;
+}
+
+#generatedGcode {
+  display: none;
+  background-color: #ccc;
+  padding:5px;
+  text-align: center;
+  
+  color:black;
+  text-align: left;
+
+  max-height: 450px;
+  
+  overflow-y:auto;
+  overflow-x:auto;
+  position:relative;
+  scroll-snap-type:proximity;
+  font-family: monospace;
+  margin-bottom: 10px;
+  width:100%;
+}
+
+#pastingForm {
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: space-between;
+}
+
+datalist {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 200px;
+}
+
+option {
+  padding: 0;
+}
+
+input[type="range"] {
+  height: 200px;
+  margin: 0;
+  writing-mode: vertical-lr;
 }
 
 
 
-
-
-
-
-
-
+#speed-slider {
+  display: flex;
+  flex-flow: row nowrap;
+  width:50px;
+}
 
 
 
