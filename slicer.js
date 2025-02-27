@@ -15,8 +15,6 @@ export class slicer {
 
         commands.push(
             "G90",          // set to absolute mode
-            "G28",          // home all axis
-            "G28",
             "G92 B0"        // reset b axis to 0
         );
 
