@@ -2,11 +2,15 @@ import './style.css'
 import { modalManager } from './modal.js'
 import { serialManager } from './serialManager.js';
 import { feederBus } from './feederBus';
+import { gerberManager } from './gerber.js';
+import { slicer } from './slicer.js';
 import { commands } from './commands.js'
 
 let modal = new modalManager();
 let serial = new serialManager(modal);
 let feeder = new feederBus(serial, modal);
+let gerber = new gerberManager(serial);
+let _slicer = new slicer(serial);
 
 let positions = [];
 
@@ -313,78 +317,77 @@ async function capture(){
   
 }
 
+let dataFile = document.getElementById("dataFile");
+dataFile.addEventListener("change", async (e) => {
 
-const pastingForm = document.getElementById("pastingForm");
+  const file = e.target.files[0];
+  const data = await file.text();
+  const parsedData = JSON.parse(data);
+  _slicer.positions = parsedData;
+
+  document.getElementById("slicerStatus").innerHTML = "(Captured Positions Loaded)";
+
+});
+
+
+const sliceBtn = document.getElementById("sliceBtn");
+const sendBtn = document.getElementById("sendBtn");
 const generatedGcodeOutput = document.getElementById("generatedGcode");
 
-pastingForm.addEventListener("submit", async (e) => {
-  e.preventDefault();  // Don't let the form submit the page.
-  const action = e.submitter.name;  // either "generate" or "execute"
-  const formData = new FormData(pastingForm);
-  const data = Object.fromEntries(formData.entries());
+sliceBtn.addEventListener("click", async () => {
+  
+  const dispenseDeg = document.getElementById("dispenseDeg").value;
+  const retractionDeg = document.getElementById("retractionDeg").value;
+  const dwellMs = document.getElementById("dwellMs").value;
 
-  data.fileData = JSON.parse(await data.dataFile.text());
-  delete data.dataFile;
+  console.log(_slicer.positions);
 
+  _slicer.slice(dispenseDeg, retractionDeg, dwellMs);
 
-  const gcode = generateGCode(data.fileData, data);
+  console.log("commands: ",_slicer.commands);
+
   generatedGcodeOutput.style.display = "block";
-  generatedGcodeOutput.innerHTML = gcode.join("\n");
+  generatedGcodeOutput.innerHTML = _slicer.commands.join("\n");
 
-  if (action != "execute") {
-    return;
-  }
+});
+
+sendBtn.addEventListener("click", async () => {
 
   let resp = modal.show("Ensure Nozzles Are Level", "Manually level the nozzles before hitting ok.");
 
   console.log("now we'll execute!!", resp);
 
   resp.then((result) => {
-    console.log(result);
-    serial.send(gcode);
+      console.log(result);
+      _slicer.send();
 
-  })
+  });
+    
+  
+  
 });
 
 
 
-function generateGCode(positions, {dispenseDeg, retractionDeg, dwellMs}) {
 
-  const commands = [];
 
-  commands.push(
-    "G90",          // set to absolute mode
-    "G28",          // home all axis
-    "G28",
-    "G92 B0"        // reset b axis to 0
-  );
+let gerberFile = document.getElementById("gerberFile");
+gerberFile.addEventListener("change", async (e) => {
+  
+  gerber.parseGerber();
 
-  let currentB = 0;
+});
 
-  //cast to floats
-  dispenseDeg = parseFloat(dispenseDeg);
-  retractionDeg = parseFloat(retractionDeg);
-  dwellMs = parseFloat(dwellMs);
 
-  for(const [x, y, z] of positions) {
 
-    const dispenseAbsPos = currentB + dispenseDeg;
-    const retractionAbsPos = dispenseAbsPos - retractionDeg;
+const grabGreenButton = document.getElementById("grabGreenSpot");
+grabGreenButton.addEventListener("click", async () => {
+  
+  await gerber.grabBoardPosition();
+  gerber.sendToSlicer(_slicer);
 
-    commands.push(
-      `G0 X${x} Y${y}`,                 // Move over
-      `G0 Z${z}`,                       // Move z down
-      `G0 B${dispenseAbsPos}`,          // Extrude paste
-      `G0 B${retractionAbsPos}`,        // Retract a small amount
-      `G4 P${dwellMs}`,                 // Dwell and wait for paste to actually extrude
-      "G0 Z31.5",                       // Move safe z
-    );
+  document.getElementById("slicerStatus").innerHTML = "(Gerber Positions Loaded)";
+      
+});
 
-    currentB = retractionAbsPos;
-  }
-
-  commands.push("G0 X300 Y400");
-
-  return commands;
-}
 

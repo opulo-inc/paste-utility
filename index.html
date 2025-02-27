@@ -1,140 +1,178 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/png" sizes="16x16" href="public/lumen-icon.png">
-    <link rel="shortcut icon" type="image/x-icon" href="public/lumen-icon.png">
-    <script type="module" src="/main.js"></script>
-    <title>LumenPnP Pasting Utility</title>
-  </head>
-  <body>
-    <div id="header-pill"><h1>LumenPnP Pasting Utility</h1></div>
-    <button id="connect" type="button">Connect</button>
-    <div id="main-app">
 
-      <div id="topRow">
-        <div id="capture" class="thirdwidth">
-          <h2 style="width:100%">Capture Positions</h2>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap');
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" sizes="16x16" href="public/lumen-icon.png">
+  <link rel="shortcut icon" type="image/x-icon" href="public/lumen-icon.png">
+  <script type="module" src="/main.js"></script>
+  <title>LumenPnP Pasting Utility</title>
+</head>
+
+<body>
+  <div id="header-pill">
+    <h1>LumenPnP Pasting Utility</h1>
+  </div>
+  <button id="connect" type="button">Connect</button>
+  <div id="main-app">
+
+    <div id="topRow">
+      <div id="capture">
+        <h2 style="width:100%">Capture Positions</h2>
+        <p>
+          Use this tool to capture positions of where you'd like to dispense paste. After connecting, hold <code>option</code> and use arrow keys to move the head, and <code>[ ]</code> to move
+          in Z. Hold <code>shift</code> instead to move faster. You can also jog using the buttons below.
+        </p>
+        <p>
+          When you've reached a position, click <code>Capture</code> to capture the current position. Repeat for any other locations and click <code>Export</code> to export the positions as a JSON file.
+        </p>
+        <p>
+          If you've already generated a position file, you can load it in by clicking <code>Choose File</code> and selecting the file. Once you've done this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
+        </p>
+
+        <div id="capture-controls">
+          <div id="pendant">
+            <div id="pendant-buttons">
+              <button id="jog-yp" type="button">Y+</button>
+              <div>
+                <button id="jog-xm" type="button">X-</button>
+
+                <button id="jog-xp" type="button">X+</button>
+              </div>
+
+              <button id="jog-ym" type="button">Y-</button>
+              <br />
+              <div class="alignEvenlyHoriz">
+                <div class="alignbuttonsvert">
+                  <button id="jog-zm" type="button">Head Up</button>
+                  <button id="jog-zp" type="button">Head Down</button>
+                </div>
+                <div class="alignbuttonsvert">
+                  <button id="jog-bp" type="button">Dispense</button>
+                  <button id="jog-bm" type="button">Retract</button>
+                </div>
+              </div>
+
+            </div>
+
+            <div id="speed-slider">
+              <input type="range" writing-mode="vertical-lr" id="jog-distance" list="markers" orient="vertical" step="1"
+                min="1" max="4" value="3" />
+              <datalist id="markers">
+                <option value="1" label="0.1mm"></option>
+                <option value="2" label="1mm"></option>
+                <option value="3" label="10mm"></option>
+                <option value="4" label="100mm"></option>
+              </datalist>
+            </div>
+
+
+          </div>
+          <div id="capture-buttons">
+            <button id="home" type="button">Home</button> <br />
+            <button id="capture-button" type="button">Capture</button><br />
+            <button id="export-captured" type="buttom">Export</button>
+          </div>
+
+          
+
+        </div>
+        <input type="file" id="dataFile" accept="application/json" />
+        <div id="capture-output">
+        </div>
+
+      </div>
+
+      <div id="gerber" class="">
+        <div id="gerberSettings">
+          <h2>Gerber Processor</h2>
+
           <p>
-            After connecting, hold <code>option</code> and use arrow keys to move the head, and <code>[ ]</code> to move in Z. Hold <code>shift</code> instead to move faster.
+            This tool is for processing paste-layer Gerber files and extracting locations where paste needs to be dispensed. 
           </p>
+          <p>
+            After loading a .gbr file, jog your paste tip to the position on the board represnted with a green dot in the render to the right, and click the "Capture Green Spot Coordinates". This will tell the tool where your board is mounted. After this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
+          </p>
+  
+          <input type="file" id="gerberFile" />
+  
+          <button id="grabGreenSpot" type="button">Grab Green Spot Coordinates</button>
+  
+        </div>
+  
+  
+        <canvas id="pointViz" width="1000" height="1000"></canvas>
 
-          <div id="capture-controls">
-            <div id="pendant">
-              <div id="pendant-buttons">
-                <button id="jog-yp" type="button">Y+</button>
-                <div>
-                  <button id="jog-xm" type="button">X-</button>
-                
-                  <button id="jog-xp" type="button">X+</button>
-                </div>
-                
-                <button id="jog-ym" type="button">Y-</button>
-                <br />
-                <div class="alignEvenlyHoriz">
-                  <div class="alignbuttonsvert">
-                    <button id="jog-zm" type="button">Head Up</button>
-                    <button id="jog-zp" type="button">Head Down</button>
-                  </div>
-                  <div class="alignbuttonsvert">
-                    <button id="jog-bp" type="button">Dispense</button>
-                    <button id="jog-bm" type="button">Retract</button>
-                  </div>
-                </div>
-                
+      </div>
 
-                
-                
+    </div>
 
-              </div>
-              
-              <div id="speed-slider">
-                <input type="range" writing-mode="vertical-lr" id="jog-distance" list="markers" orient="vertical" step="1" min="1" max="4" value="3" />
-                <datalist id="markers">
-                  <option value="1" label="0.1mm"></option>
-                  <option value="2" label="1mm"></option>
-                  <option value="3" label="10mm"></option>
-                  <option value="4" label="100mm"></option>
-                </datalist>
-              </div>
-              
-
-            </div>
-            <div id="capture-buttons">
-              <button id="home" type="button">Home</button> <br />
-              <button id="capture-button" type="button">Capture</button><br />
-              <button id="export-captured" type="buttom">Export</button>
-            </div>
-            
-          </div>
-          <div id="capture-output">
-          </div>
+    <div id="secondRow">
+      <div id="sliceSettings" class="thirdwidth">
+        <h2 style="width:100%">Slice and Send</h2>
+        <h3 id="slicerStatus">(No Positions Loaded)</h3>
         
-        </div>
-
-
-          
+        <p>Dispense Degrees:</p><input type="number" id="dispenseDeg" min="5" max="300" value="30" />
+        <p>Retraction Degrees:</p><input type="number" id="retractionDeg" min="1" max="200" value="1" />
+        <p>Dwell Milliseconds:</p><input type="number" id="dwellMs" min="0" max="5000" value="100" />
+        <br />
+        <button id="sliceBtn" >Slice</button>
+        <br />
+        <button id="sendBtn" >Send</button>
         
+      </div>
 
-      
-
-        <div id="load-run" class="thirdwidth">
-          <h2 style="width:100%">Load and Run</h2>
-          <form id="pastingForm">
-            <p>Dispense Degrees:</p><input type="number" name="dispenseDeg" min="5" max="300" value="30"/>
-            <p>Retraction Degrees:</p><input type="number" name="retractionDeg" min="1" max="200" value="1"/>
-            <p>Dwell Milliseconds:</p><input type="number" name="dwellMs" min="0" max="5000" value="100"/>
-            <br />
-            <input type="file" name="dataFile" accept="application/json" />
-            <br />
-            <button type="submit" name="generate" required>Generate</button>
-            <br />
-            <button type="submit" name="execute" required>Execute</button>
-          </form>
-          
-
-        </div>
-
-        <div id="generatedDiv" class="thirdwidth">
-          <h2 style="width:100%">Generated Gcode</h2>
-          <pre id="generatedGcode"></pre>
-        </div>
+      <div id="generatedDiv" class="thirdwidth">
+        <h3>Generated Gcode</h3>
+        <pre id="generatedGcode" style="border:1px solid black;background-color:white;"></pre>
       </div>
 
       <div id="repl">
         <div id="console"></div>
-        <button id="send" type="button">Send</button>
-        <input id="repl-input" type="text" placeholder="Send Gcode"/>
-      </div>
-
-    </div>
-
-    <div id="footer"><img src="public/opulo-gold-alpha-tiny.png"></div>
-    
-    <div id="modal">
-      <div class="flex">
-        <img src="public/lumen-icon.png">
-        <button id="modal-close" class="btn-close">⨉</button>
+        <div id="repl-bottom-row">
+          <button id="send" type="button">Send</button>
+          <input id="repl-input" type="text" placeholder="Send Gcode" />
+        </div>
         
       </div>
 
-      <h2 id="modal-title">test</h2>
-      <p id="modal-content">test</p>
-      <input id="modal-num-input" min="1" max="254" type="number">
-      <div class="flex">
-        <button id="modal-ng">Cancel</button>
-        <button id="modal-ok">OK</button>
-      </div>
-      
-      
-
-      
-      
     </div>
 
-    <div id="overlay"></div>
+    
 
-  </body>
+  </div>
+
+  <div id="footer"><img src="public/opulo-gold-alpha-tiny.png"></div>
+
+  <div id="modal">
+    <div class="flex">
+      <img src="public/lumen-icon.png">
+      <button id="modal-close" class="btn-close">⨉</button>
+
+    </div>
+
+    <h2 id="modal-title">test</h2>
+    <p id="modal-content">test</p>
+    <input id="modal-num-input" min="1" max="254" type="number">
+    <div class="flex">
+      <button id="modal-ng">Cancel</button>
+      <button id="modal-ok">OK</button>
+    </div>
+
+
+
+
+
+  </div>
+
+  <div id="overlay"></div>
+
+</body>
+
 </html>

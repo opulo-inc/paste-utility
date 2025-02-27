@@ -1,5 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap');
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: "Figtree", sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
@@ -32,7 +34,7 @@ body {
 
   min-width: 320px;
   min-height: 100vh;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif
+  font-family: "Figtree", system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif
 }
 
 h1 {
@@ -104,7 +106,7 @@ label {
   padding: 20px;
 
   display:flex;
-  flex-flow: row wrap;
+  flex-flow: column wrap;
   justify-content: space-around;
   align-content: flex-start;
 
@@ -134,21 +136,6 @@ label {
   margin:1%;
 }
 
-#control-pane {
-  width:100%;
-  display:flex;
-  flex-wrap: wrap;
-  padding:1em;
-  background-color: #ccc;
-}
-
-
-#topRow {
-  display: flex;
-  width:100%;
-}
-
-
 .position-item {
   background-color: #888;
   margin-top:5px;
@@ -158,6 +145,20 @@ label {
   align-items: center;
 
 }
+
+
+
+
+#topRow {
+  display: flex;
+  width:100%;
+}
+
+#capture{
+  flex-grow: 1;
+  padding-right:10px;
+}
+
 
 #capture-controls {
   
@@ -205,31 +206,7 @@ label {
   align-items: center;
 }
 
-#generatedGcode {
-  display: none;
-  background-color: #ccc;
-  padding:5px;
-  text-align: center;
-  
-  color:black;
-  text-align: left;
 
-  max-height: 450px;
-  
-  overflow-y:auto;
-  overflow-x:auto;
-  position:relative;
-  scroll-snap-type:proximity;
-  font-family: monospace;
-  margin-bottom: 10px;
-  width:100%;
-}
-
-#pastingForm {
-  display: flex;
-  flex-flow: column nowrap;
-  justify-content: space-between;
-}
 
 datalist {
   display: flex;
@@ -272,31 +249,101 @@ input[type="range"] {
 
 }
 
+#pointViz {
+  border:1px solid #000000;
+  background-color:white;
+  width:500px;
+  height:500px;
+  align-self: center;
+}
+
+
+#secondRow {
+  display: flex;
+  background-color: #ccc;
+  margin-top: 10px;;
+}
+
+#sliceSettings {
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: flex-start;
+  align-items: flex-start;
+  width:31%;  
+  margin:1%;
+}
+
+#generatedDiv {
+  width:31%;  
+  background-color: white;
+  padding: 10px;
+}
+
+#generatedGcode {
+  display: none;
+  background-color: #ccc;
+  padding:5px;
+  text-align: center;
+  
+  color:black;
+  text-align: left;
+
+  max-height: 450px;
+  
+  overflow-y:auto;
+  overflow-x:auto;
+  position:relative;
+  scroll-snap-type:proximity;
+  font-family: monospace;
+  margin-bottom: 10px;
+  width:97%;
+}
 
 
 
+#gerber{
+  background-color: #ccc;
+  display: flex ;
+  padding: 10px;
+  justify-content: space-between;
+}
 
-
-
+#gerberSettings{
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: flex-start;
+  align-items: flex-start;
+  margin: 10px;
+  flex-grow: 2;
+}
 
 #repl {
-  flex-grow: 1;
-  margin: 0 auto;
-  padding: 1%;
-  margin-top:0px;
+
+  width:31%;  
+  margin:1%;
+  padding:10px;
+  margin-top:10px;
   
   background-color: #888;
   display:flex;
   align-content: flex-start;
-  flex-flow: row wrap;
+  flex-flow: column nowrap;
+  
 
+}
+
+#repl-bottom-row{
+  display: flex;
+  flex-flow: row nowrap;
+  justify-content: space-between;
+  align-items: center;
 }
 
 #console {
   
   text-align: center;
   background-color: #fff;
-  height: 250px;
+  height: 500px;
   
   color:black;
   text-align: left;
@@ -332,7 +379,7 @@ input[type="range"] {
 }
 
 #repl-input {
-  flex-grow:1;
+  flex-grow: 2;
   display:block;
   padding-left:10px;
   height:2.5em;
