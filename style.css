@@ -88,7 +88,7 @@ label {
 }
 
 #connect {
-  margin-right:4%;
+  margin-right:5%;
 
   margin-top:20px;
   margin-bottom:20px;
@@ -390,7 +390,8 @@ input[type="range"] {
   text-align: center;
   margin:auto;
   margin-top: 20px;
-  width: 200px;
+  margin-bottom:100px;
+  width: 100%;
 
 
 }
