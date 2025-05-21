@@ -4,6 +4,7 @@ export class serialManager {
         this.decoder = new TextDecoder();
         this.consoleDiv = document.getElementById("console");
         this.port;
+        this.shouldListen = true;
 
         this.modal = modal;
 
@@ -113,42 +114,35 @@ export class serialManager {
     // it comes in randomly, so we have to filter by newlines an add
     // to buffer based on the newlines
     async listen() {
-        while (this.port?.readable) {
-        console.log("Port is readable: Starting to listen.")
-        let metabuffer = ""
-        let consoleDiv = document.getElementById("console");
-        const reader = this.port.readable.getReader()
-        try {
-            while (true) {
-            const { value, done } = await reader.read()
-            if (done) {
-                // |reader| has been canceled.
-                console.log("Closing reader.");
-            
-                break;
-            }
-            
-            const decoded = this.decoder.decode(value)
-            metabuffer = metabuffer.concat(decoded);
+        while (this.port?.readable && this.shouldListen) {
+            console.log("Port is readable: Starting to listen.")
+            let metabuffer = ""
+            let consoleDiv = document.getElementById("console");
+            const reader = this.port.readable.getReader()
+            try {
+                while (this.shouldListen) {
+                    const { value, done } = await reader.read()
+                    if (done) {
+                        console.log("Closing reader.");
+                        break;
+                    }
+                    
+                    const decoded = this.decoder.decode(value)
+                    metabuffer = metabuffer.concat(decoded);
 
-            while(metabuffer.indexOf("\n") != -1){
-                let splitted = metabuffer.split('\n');
-                // console.log(splitted)
-                this.receiveBuffer.push(splitted[0]);
-
-                this.appendToConsole(splitted[0], false);
-                this.inspectBuffer.push(splitted[0]);
-                console.log("current inspect buffer", this.inspectBuffer)
-
-                metabuffer = metabuffer.split('\n').slice(1).join('\n');
+                    while(metabuffer.indexOf("\n") != -1){
+                        let splitted = metabuffer.split('\n');
+                        this.receiveBuffer.push(splitted[0]);
+                        this.appendToConsole(splitted[0], false);
+                        this.inspectBuffer.push(splitted[0]);
+                        metabuffer = metabuffer.split('\n').slice(1).join('\n');
+                    }
+                }
+            } catch (error) {
+                console.error('Reading error.', error)
+            } finally {
+                reader.releaseLock()
             }
-            
-            }
-        } catch (error) {
-            console.error('Reading error.', error)
-        } finally {
-            reader.releaseLock()
-        }
         }
     }
 

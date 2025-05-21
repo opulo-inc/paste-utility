@@ -22,9 +22,12 @@
   <div id="header-pill">
     <h1>LumenPnP Pasting Utility</h1>
   </div>
-  <button id="connect" type="button">Connect</button>
-  <div id="main-app">
+  <div id="top-controls">
+    <select id="camera-select"></select>
+    <button id="connect" type="button">Connect</button>
+  </div>
 
+  <div id="main-app">
     <div id="topRow">
       <div id="capture">
         <h2 style="width:100%">Capture Positions</h2>
@@ -39,134 +42,118 @@
           If you've already generated a position file, you can load it in by clicking <code>Choose File</code> and selecting the file. Once you've done this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
         </p>
 
-        <div id="capture-controls">
-          <div id="pendant">
-            <div id="pendant-buttons">
-              <button id="jog-yp" type="button">Y+</button>
-              <div>
-                <button id="jog-xm" type="button">X-</button>
-
-                <button id="jog-xp" type="button">X+</button>
-              </div>
-
-              <button id="jog-ym" type="button">Y-</button>
-              <br />
-              <div class="alignEvenlyHoriz">
-                <div class="alignbuttonsvert">
-                  <button id="jog-zm" type="button">Head Up</button>
-                  <button id="jog-zp" type="button">Head Down</button>
-                </div>
-                <div class="alignbuttonsvert">
-                  <button id="jog-bp" type="button">Dispense</button>
-                  <button id="jog-bm" type="button">Retract</button>
-                </div>
-              </div>
-
-            </div>
-
-            <div id="speed-slider">
-              <input type="range" writing-mode="vertical-lr" id="jog-distance" list="markers" orient="vertical" step="1"
-                min="1" max="4" value="3" />
-              <datalist id="markers">
-                <option value="1" label="0.1mm"></option>
-                <option value="2" label="1mm"></option>
-                <option value="3" label="10mm"></option>
-                <option value="4" label="100mm"></option>
-              </datalist>
-            </div>
-
-
-          </div>
-          <div id="capture-buttons">
-            <button id="home" type="button">Home</button> <br />
-            <button id="capture-button" type="button">Capture</button><br />
-            <button id="export-captured" type="buttom">Export</button>
-          </div>
-
-          
-
+        <div id="capture-buttons">
+          <button id="home" type="button" class="goldenrod-button">Home</button> <br />
+          <button id="capture-button" type="button" class="goldenrod-button">Capture</button><br />
+          <button id="export-captured" type="buttom" class="goldenrod-button">Export</button>
         </div>
+
         <input type="file" id="dataFile" accept="application/json" />
         <div id="capture-output">
         </div>
-
       </div>
 
-      <div id="gerber" class="">
+      <div id="gerber">
         <div id="gerberSettings">
           <h2>Gerber Processor</h2>
-
           <p>
             This tool is for processing paste-layer Gerber files and extracting locations where paste needs to be dispensed. 
           </p>
           <p>
             After loading a .gbr file, jog your paste tip to the position on the board represented with a green dot in the render to the right, and click the "Capture Green Spot Coordinates". This will tell the tool where your board is mounted. After this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
           </p>
-  
           <input type="file" id="gerberFile" />
-  
-          <button id="grabGreenSpot" type="button">Grab Green Spot Coordinates</button>
-  
+          <button id="grabGreenSpot" type="button" class="goldenrod-button">Grab Green Spot Coordinates</button>
         </div>
-  
-  
         <canvas id="pointViz" width="1000" height="1000"></canvas>
-
       </div>
 
+      <div id="sliceSettings">
+        <h2>Slice and Send</h2>
+        <h3 id="slicerStatus">(No Positions Loaded)</h3>
+        <p>Dispense Degrees:</p>
+        <input type="number" id="dispenseDeg" min="5" max="300" value="30" />
+        <p>Retraction Degrees:</p>
+        <input type="number" id="retractionDeg" min="1" max="200" value="1" />
+        <p>Dwell Milliseconds:</p>
+        <input type="number" id="dwellMs" min="0" max="5000" value="100" />
+        <div class="button-row">
+          <button id="sliceBtn" class="goldenrod-button">Slice</button>
+          <button id="sendBtn" class="goldenrod-button">Send</button>
+        </div>
+      </div>
+
+      <div id="generatedDiv">
+        <h3>Generated Gcode</h3>
+        <pre id="generatedGcode"></pre>
+      </div>
     </div>
 
-    <div id="secondRow">
-      <div id="sliceSettings" class="thirdwidth">
-        <h2 style="width:100%">Slice and Send</h2>
-        <h3 id="slicerStatus">(No Positions Loaded)</h3>
-        
-        <p>Dispense Degrees:</p><input type="number" id="dispenseDeg" min="5" max="300" value="30" />
-        <p>Retraction Degrees:</p><input type="number" id="retractionDeg" min="1" max="200" value="1" />
-        <p>Dwell Milliseconds:</p><input type="number" id="dwellMs" min="0" max="5000" value="100" />
-        <br />
-        <button id="sliceBtn" >Slice</button>
-        <br />
-        <button id="sendBtn" >Send</button>
-        
+    <div id="control-section">
+      <div class="video-feed">
+        <canvas id="opencv-canvas"></canvas>
+        <button id="process-button" class="goldenrod-button">Process</button>
+      </div>
+      
+      <div class="control-buttons">
+        <div class="control-row">
+          <button id="left-air-on">Left Air On</button>
+          <button id="left-air-off">Left Air Off</button>
+        </div>
+        <div class="control-row">
+          <button id="left-vac">Left Vac</button>
+        </div>
+        <div class="control-row">
+          <button id="disable-steppers">Disable Steppers</button>
+        </div>
+        <div class="control-row">
+          <button id="ring-lights-on">Ring Lights On</button>
+          <button id="ring-lights-off">Ring Lights Off</button>
+        </div>
+        <div class="control-row">
+          <button id="home-x">Home X</button>
+          <button id="home-y">Home Y</button>
+          <button id="home-z">Home Z</button>
+        </div>
+      </div>
+      
+      <div class="jog-controls">
+        <div class="jog-buttons">
+          <div class="jog-row">
+            <button id="jog-yp" class="goldenrod-button">Y+</button>
+          </div>
+          <div class="jog-row">
+            <button id="jog-xm" class="goldenrod-button">X-</button>
+            <button id="jog-zp" class="goldenrod-button">Z+</button>
+            <button id="jog-xp" class="goldenrod-button">X+</button>
+          </div>
+          <div class="jog-row">
+            <button id="jog-ym" class="goldenrod-button">Y-</button>
+          </div>
+          <div class="jog-row">
+            <button id="jog-zm" class="goldenrod-button">Z-</button>
+          </div>
+        </div>
+        <div class="jog-slider-container">
+          <input type="range" id="jog-distance" min="1" max="4" value="2" step="1" list="jog-distances">
+          <datalist id="jog-distances">
+            <option value="1">0.1mm</option>
+            <option value="2">1mm</option>
+            <option value="3">10mm</option>
+            <option value="4">100mm</option>
+          </datalist>
+        </div>
       </div>
 
-      <div id="generatedDiv" class="thirdwidth">
-        <h3>Generated Gcode</h3>
-        <pre id="generatedGcode" style="border:1px solid black;background-color:white;"></pre>
-      </div>
-
-      <div id="repl">
+      <div class="repl-section">
+        <h3>Console</h3>
         <div id="console"></div>
         <div id="repl-bottom-row">
-          <button id="send" type="button">Send</button>
           <input id="repl-input" type="text" placeholder="Send Gcode" />
-        </div>
-        
-      </div>
-
-    </div>
-
-    <div class="opencv-section">
-      <div class="opencv-controls">
-        <select id="camera-select"></select>
-        <button id="camera-toggle">Start Camera</button>
-      </div>
-      <div class="opencv-container">
-        <div class="canvas-container">
-          <div class="canvas-wrapper">
-            <div class="canvas-label">Color Feed</div>
-            <canvas id="opencv-canvas"></canvas>
-          </div>
-          <div class="canvas-wrapper">
-            <div class="canvas-label">Grayscale Feed</div>
-            <canvas id="opencv-canvas-gray"></canvas>
-          </div>
+          <button id="send" type="button" class="goldenrod-button">Send</button>
         </div>
       </div>
-      <canvas id="canvas-frame" style="display: none;"></canvas>
     </div>
-
   </div>
 
   <div id="footer"><img src="public/opulo-gold-alpha-tiny.png"></div>
@@ -175,7 +162,6 @@
     <div class="flex">
       <img src="public/lumen-icon.png">
       <button id="modal-close" class="btn-close">⨉</button>
-
     </div>
 
     <h2 id="modal-title">test</h2>
@@ -185,15 +171,9 @@
       <button id="modal-ng">Cancel</button>
       <button id="modal-ok">OK</button>
     </div>
-
-
-
-
-
   </div>
 
   <div id="overlay"></div>
-
 </body>
 
 </html>

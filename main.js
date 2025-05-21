@@ -13,30 +13,79 @@ onOpenCVReady(cv => {
   console.log("OpenCV is ready to use!");
   
   const videoManager = new VideoManager(cv);
-  const colorCanvas = document.getElementById('opencv-canvas');
-  const grayCanvas = document.getElementById('opencv-canvas-gray');
-  const canvasFrame = document.getElementById('canvas-frame');
+  const canvas = document.getElementById('opencv-canvas');
   const cameraSelect = document.getElementById('camera-select');
   const cameraToggle = document.getElementById('camera-toggle');
+  const processButton = document.getElementById('process-button');
   
   // Initialize camera list
   videoManager.populateCameraList(cameraSelect);
   
   let isCameraRunning = false;
   
-  cameraToggle.addEventListener('click', async () => {
-    if (!isCameraRunning) {
-      try {
-        await videoManager.startVideo(cameraSelect.value, colorCanvas, grayCanvas, canvasFrame);
-        cameraToggle.textContent = 'Stop Camera';
+  // Add click handler for canvas
+  canvas.addEventListener('click', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    // Calculate scaling factors
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    // Scale the click coordinates to match the actual video dimensions
+    const scaledX = x * scaleX;
+    const scaledY = y * scaleY;
+    
+    // Calculate center of canvas
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    // Calculate offset from center
+    const offsetX = scaledX - centerX;
+    const offsetY = -(scaledY - centerY);  // Invert Y coordinate
+    
+    const scalingFactor = 0.021;
+    // Scale down the offsets by 0.1
+    const scaledOffsetX = offsetX * scalingFactor;
+    const scaledOffsetY = offsetY * scalingFactor;
+    
+    console.log(`Clicked at offset from center: X=${offsetX.toFixed(1)}, Y=${offsetY.toFixed(1)}`);
+    console.log(`Sending jog commands: X=${scaledOffsetX.toFixed(1)}, Y=${scaledOffsetY.toFixed(1)}`);
+    
+    // Send jog commands using relative positioning
+    serial.send([
+      "G91",  // Set relative positioning
+      `G0 X${scaledOffsetX.toFixed(1)} Y${scaledOffsetY.toFixed(1)}`,  // Move relative to current position
+      "G90"   // Set absolute positioning
+    ]);
+  });
+  
+  document.getElementById("connect").addEventListener("click", async () => {
+    const connectButton = document.getElementById("connect");
+    
+    try {
+      if (!isCameraRunning) {
+        // Connect to serial port
+        await serial.connect();
+        
+        // Start camera
+        await videoManager.startVideo(cameraSelect.value, canvas);
         isCameraRunning = true;
-      } catch (err) {
-        alert('Error starting camera: ' + err.message);
+        
+        // Update button state and disable it
+        connectButton.textContent = 'Connected';
+        connectButton.classList.add('connected');
+        connectButton.disabled = true;
       }
-    } else {
-      videoManager.stopVideo(colorCanvas, grayCanvas);
-      cameraToggle.textContent = 'Start Camera';
-      isCameraRunning = false;
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+
+  processButton.addEventListener('click', () => {
+    if (isCameraRunning) {
+      videoManager.startProcessing(canvas);
     }
   });
 });
@@ -93,10 +142,6 @@ document.getElementById("capture-button").addEventListener("click", () => {
 
 document.getElementById("export-captured").addEventListener("click", () => {
   positionManager.exportCaptured();
-});
-
-document.getElementById("connect").addEventListener("click", () => {
-  serial.connect();
 });
 
 document.getElementById("send").addEventListener("click", () => {
@@ -159,170 +204,43 @@ document.getElementById("jog-zm").addEventListener("click", () => {
   serial.send(["G91", `G0 Z-${dist}`, "G90"]);
 });
 
-document.getElementById("jog-bp").addEventListener("click", () => {
-  let dist = getJogDistance();
-  serial.send(["G91", `G0 B${dist}`, "G90"]);
+// Air control
+document.getElementById("left-air-on").addEventListener("click", () => {
+  serial.send(["M106", "M106 P1 S255"]);
 });
 
-document.getElementById("jog-bm").addEventListener("click", () => {
-  let dist = getJogDistance();
-  serial.send(["G91", `G0 B-${dist}`, "G90"]);
+document.getElementById("left-air-off").addEventListener("click", () => {
+  serial.send(["M107", "M107 P1"]);
 });
 
-
-document.addEventListener("keyup", function(event) {
-
-  if(event.getModifierState("Shift") && !event.getModifierState("Alt")){
-    if (event.code === "ArrowUp"){
-      console.log("we saw shift arrow up!")
-      serial.send(["G91", "G0 Y10", "G90"]);
-    }
-    else if (event.code === "ArrowDown"){
-      console.log("we saw shift arrow down!")
-      serial.send(["G91", "G0 Y-10", "G90"]);
-    }
-    else if (event.code === "ArrowLeft"){
-      console.log("we saw shift arrow left!")
-      serial.send(["G91", "G0 X-10", "G90"]);
-    }
-    else if (event.code === "ArrowRight"){
-      console.log("we saw shift arrow right!")
-      serial.send(["G91", "G0 X10", "G90"]);
-    }
-    else if (event.code === "BracketLeft"){
-      console.log("we saw shift comma!")
-      serial.send(["G91", "G0 Z-10", "G90"]);
-    }
-    else if (event.code === "BracketRight"){
-      console.log("we saw shift period!")
-      serial.send(["G91", "G0 Z10", "G90"]);
-    }
-  }
-
-  else if(!event.getModifierState("Shift") && event.getModifierState("Alt")){
-    if (event.code === "ArrowUp"){
-      console.log("we saw shift arrow up!")
-      serial.send(["G91", "G0 Y1", "G90"]);
-    }
-    else if (event.code === "ArrowDown"){
-      console.log("we saw shift arrow down!")
-      serial.send(["G91", "G0 Y-1", "G90"]);
-    }
-    else if (event.code === "ArrowLeft"){
-      console.log("we saw shift arrow left!")
-      serial.send(["G91", "G0 X-1", "G90"]);
-    }
-    else if (event.code === "ArrowRight"){
-      console.log("we saw shift arrow right!")
-      serial.send(["G91", "G0 X1", "G90"]);
-    }
-    else if (event.code === "BracketLeft"){
-      console.log("we saw shift comma!")
-      serial.send(["G91", "G0 Z-1", "G90"]);
-    }
-    else if (event.code === "BracketRight"){
-      console.log("we saw shift period!")
-      serial.send(["G91", "G0 Z1", "G90"]);
-    }
-  }
-
-  else if(event.getModifierState("Shift") && event.getModifierState("Alt")){
-    if (event.code === "ArrowUp"){
-      console.log("we saw shift arrow up!")
-      serial.send(["G91", "G0 Y0.1", "G90"]);
-    }
-    else if (event.code === "ArrowDown"){
-      console.log("we saw shift arrow down!")
-      serial.send(["G91", "G0 Y-0.1", "G90"]);
-    }
-    else if (event.code === "ArrowLeft"){
-      console.log("we saw shift arrow left!")
-      serial.send(["G91", "G0 X-0.1", "G90"]);
-    }
-    else if (event.code === "ArrowRight"){
-      console.log("we saw shift arrow right!")
-      serial.send(["G91", "G0 X0.1", "G90"]);
-    }
-    else if (event.code === "BracketLeft"){
-      console.log("we saw shift comma!")
-      serial.send(["G91", "G0 Z-0.1", "G90"]);
-    }
-    else if (event.code === "BracketRight"){
-      console.log("we saw shift period!")
-      serial.send(["G91", "G0 Z0.1", "G90"]);
-    }
-  }
-  
+// Vacuum control
+document.getElementById("left-vac").addEventListener("click", () => {
+  serial.readLeftVac();
 });
 
-let dataFile = document.getElementById("dataFile");
-dataFile.addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  const data = await file.text();
-  if (positionManager.importFromJSON(data)) {
-    _slicer.positions = positionManager.getPositions();
-    document.getElementById("slicerStatus").innerHTML = "(Captured Positions Loaded)";
-  }
+// Ring lights control
+document.getElementById("ring-lights-on").addEventListener("click", () => {
+  serial.send(["M150 P255 R255 U255 B255"]);
 });
 
-const sliceBtn = document.getElementById("sliceBtn");
-const sendBtn = document.getElementById("sendBtn");
-const generatedGcodeOutput = document.getElementById("generatedGcode");
-
-sliceBtn.addEventListener("click", async () => {
-  
-  const dispenseDeg = document.getElementById("dispenseDeg").value;
-  const retractionDeg = document.getElementById("retractionDeg").value;
-  const dwellMs = document.getElementById("dwellMs").value;
-
-  console.log(_slicer.positions);
-
-  _slicer.slice(dispenseDeg, retractionDeg, dwellMs);
-
-  console.log("commands: ",_slicer.commands);
-
-  generatedGcodeOutput.style.display = "block";
-  generatedGcodeOutput.innerHTML = _slicer.commands.join("\n");
-
+document.getElementById("ring-lights-off").addEventListener("click", () => {
+  serial.send(["M150 P0"]);
 });
 
-sendBtn.addEventListener("click", async () => {
-
-  let resp = modal.show("Ensure Nozzles Are Level", "Manually level the nozzles before hitting ok.");
-
-  console.log("now we'll execute!!", resp);
-
-  resp.then((result) => {
-      console.log(result);
-      _slicer.send();
-
-  });
-    
-  
-  
+// Stepper control
+document.getElementById("disable-steppers").addEventListener("click", () => {
+  serial.send(["M18"]);
 });
 
-
-
-
-
-let gerberFile = document.getElementById("gerberFile");
-gerberFile.addEventListener("change", async (e) => {
-  
-  gerber.parseGerber();
-
+// Homing controls
+document.getElementById("home-x").addEventListener("click", () => {
+  serial.send(["G28 X"]);
 });
 
-
-
-const grabGreenButton = document.getElementById("grabGreenSpot");
-grabGreenButton.addEventListener("click", async () => {
-  
-  await gerber.grabBoardPosition();
-  gerber.sendToSlicer(_slicer);
-
-  document.getElementById("slicerStatus").innerHTML = "(Gerber Positions Loaded)";
-      
+document.getElementById("home-y").addEventListener("click", () => {
+  serial.send(["G28 Y"]);
 });
 
-
+document.getElementById("home-z").addEventListener("click", () => {
+  serial.send(["G28 Z"]);
+});

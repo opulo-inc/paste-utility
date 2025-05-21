@@ -5,6 +5,15 @@ export class VideoManager {
     this.src = null;
     this.dst = null;
     this.isProcessing = false;
+    this.isInProcessMode = false;
+    this.processTimer = null;
+    this.processedFrame = null;
+    this.canvas = null;
+    this.frame = null;
+    this.gray = null;
+    this.blurred = null;
+    this.circles = null;
+    this.cap = null;
   }
 
   async populateCameraList(selectElement) {
@@ -12,154 +21,273 @@ export class VideoManager {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
       
+      // Clear existing options
+      selectElement.innerHTML = '';
+      
+      // Add each video device as an option
       videoDevices.forEach(device => {
         const option = document.createElement('option');
         option.value = device.deviceId;
         option.text = device.label || `Camera ${videoDevices.indexOf(device) + 1}`;
         selectElement.appendChild(option);
+        
+        // If this device has "top" in its name, select it
+        if (device.label && device.label.toLowerCase().includes('top')) {
+          selectElement.value = device.deviceId;
+        }
       });
     } catch (err) {
-      console.error('Error getting camera list:', err);
-      throw err;
+      console.error('Error populating camera list:', err);
     }
   }
 
-  async startVideo(deviceId, colorCanvas, grayCanvas, canvasFrame) {
+  async startVideo(cameraId, canvas) {
     try {
-      console.log('Starting video...');
-
-      // Get selected camera
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          deviceId: deviceId
+          deviceId: cameraId ? { exact: cameraId } : undefined
         }
       });
 
-      console.log('Got media stream:', stream);
-      
-      // Create new video element
       this.video = document.createElement('video');
-      this.video.setAttribute('playsinline', '');
-      this.video.setAttribute('autoplay', '');
-      this.video.style.display = 'none'; // Hide the video element
-      document.body.appendChild(this.video); // Add to DOM
       this.video.srcObject = stream;
-      
-      // Wait for video to be ready
+      this.video.setAttribute('playsinline', true);
+      this.canvas = canvas;
+
+      // Wait for video metadata to load
       await new Promise((resolve) => {
         this.video.onloadedmetadata = () => {
-          console.log('Video metadata loaded:', {
-            width: this.video.videoWidth,
-            height: this.video.videoHeight
-          });
-          
           // Set canvas dimensions to match video
-          colorCanvas.width = this.video.videoWidth;
-          colorCanvas.height = this.video.videoHeight;
-          grayCanvas.width = this.video.videoWidth;
-          grayCanvas.height = this.video.videoHeight;
-          canvasFrame.width = this.video.videoWidth;
-          canvasFrame.height = this.video.videoHeight;
-          
+          this.canvas.width = this.video.videoWidth;
+          this.canvas.height = this.video.videoHeight;
           resolve();
         };
       });
-      
+
+      // Start video
       await this.video.play();
-      console.log('Video element created and playing');
-      
-      // Create new matrices with video dimensions
-      this.src = new this.cv.Mat(this.video.videoHeight, this.video.videoWidth, this.cv.CV_8UC4);
-      this.dst = new this.cv.Mat();
-      
-      // Get canvas context
-      const context = canvasFrame.getContext('2d', { willReadFrequently: true });
-      
-      console.log('OpenCV setup complete');
-      
-      // Start processing
-      this.isProcessing = true;
-      this.processVideo(colorCanvas, grayCanvas, canvasFrame);
-      
+      this.processVideo();
     } catch (err) {
-      console.error('Error starting camera:', err);
+      console.error('Error starting video:', err);
       throw err;
     }
   }
 
-  processVideo(colorCanvas, grayCanvas, canvasFrame) {
-    if (!this.isProcessing) return;
+  processVideo() {
+    if (!this.video || !this.video.srcObject) return;
 
-    try {
-      let begin = Date.now();
-      
-      // Draw video frame to hidden canvas
-      const context = canvasFrame.getContext('2d');
+    // Create matrices if they don't exist
+    if (!this.frame) {
+      this.frame = new this.cv.Mat(this.video.videoHeight, this.video.videoWidth, this.cv.CV_8UC4);
+      this.gray = new this.cv.Mat();
+      this.blurred = new this.cv.Mat();
+      this.circles = new this.cv.Mat();
+    }
+
+    if (this.isInProcessMode && this.processedFrame) {
+      // Draw reticle on processed frame
+      const centerX = this.processedFrame.cols / 2;
+      const centerY = this.processedFrame.rows / 2;
+      const reticleSize = 20;  // Size of the reticle lines
+      const reticleColor = new this.cv.Scalar(255, 200, 0, 255);  // Green color
+      const reticleThickness = 3;  // Thin line
+
+      // Draw horizontal line
+      this.cv.line(
+        this.processedFrame,
+        new this.cv.Point(centerX - reticleSize, centerY),
+        new this.cv.Point(centerX + reticleSize, centerY),
+        reticleColor,
+        reticleThickness
+      );
+
+      // Draw vertical line
+      this.cv.line(
+        this.processedFrame,
+        new this.cv.Point(centerX, centerY - reticleSize),
+        new this.cv.Point(centerX, centerY + reticleSize),
+        reticleColor,
+        reticleThickness
+      );
+
+      // Display the processed frame
+      this.cv.imshow(this.canvas, this.processedFrame);
+    } else {
+      // Draw video frame to canvas
+      const context = this.canvas.getContext('2d');
       context.drawImage(this.video, 0, 0, this.video.videoWidth, this.video.videoHeight);
       
       // Get image data from canvas
       const imageData = context.getImageData(0, 0, this.video.videoWidth, this.video.videoHeight);
-      this.src.data.set(imageData.data);
+      this.frame.data.set(imageData.data);
       
-      // Display color image
-      this.cv.imshow('opencv-canvas', this.src);
+      // Flip the image in both X and Y axes immediately
+      this.cv.flip(this.frame, this.frame, -1);  // -1 means flip both axes
       
-      // Convert to grayscale for circle detection
-      this.cv.cvtColor(this.src, this.dst, this.cv.COLOR_RGBA2GRAY);
+      // Convert to grayscale
+      this.cv.cvtColor(this.frame, this.gray, this.cv.COLOR_RGBA2GRAY);
       
-      // Apply Gaussian blur to reduce noise
-      const blurred = new this.cv.Mat();
-      this.cv.GaussianBlur(this.dst, blurred, new this.cv.Size(9, 9), 2, 2);
+      // Apply Gaussian blur
+      this.cv.GaussianBlur(this.gray, this.blurred, new this.cv.Size(9, 9), 2, 2);
       
       // Detect circles
-      const circles = new this.cv.Mat();
       this.cv.HoughCircles(
-        blurred,
-        circles,
+        this.blurred,
+        this.circles,
         this.cv.HOUGH_GRADIENT,
         1,
-        blurred.rows / 8,
-        100,
-        30,
-        0,
-        0
+        this.blurred.rows / 8,
+        50,
+        200,
+        25,
+        100
       );
 
-      // Convert back to color for drawing circles
-      this.cv.cvtColor(this.dst, this.dst, this.cv.COLOR_GRAY2RGBA);
-      
-      // Draw detected circles
-      for (let i = 0; i < circles.cols; i++) {
-        const x = circles.data32F[i * 3];
-        const y = circles.data32F[i * 3 + 1];
-        const radius = circles.data32F[i * 3 + 2];
-        
+      // Draw the detected circles
+      for (let i = 0; i < this.circles.cols; i++) {
+        const x = this.circles.data32F[i * 3];
+        const y = this.circles.data32F[i * 3 + 1];
+        const radius = this.circles.data32F[i * 3 + 2];
+
         // Draw circle center
-        this.cv.circle(this.dst, new this.cv.Point(x, y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
+        this.cv.circle(this.frame, new this.cv.Point(x, y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
         // Draw circle outline
-        this.cv.circle(this.dst, new this.cv.Point(x, y), radius, new this.cv.Scalar(0, 255, 0, 255), 2);
+        this.cv.circle(this.frame, new this.cv.Point(x, y), radius, new this.cv.Scalar(255, 0, 0, 255), 3);
       }
 
-      // Display the result with circles
-      this.cv.imshow('opencv-canvas-gray', this.dst);
+      // Draw reticle on live frame
+      const centerX = this.frame.cols / 2;
+      const centerY = this.frame.rows / 2;
+      const reticleSize = 20;  // Size of the reticle lines
+      const reticleColor = new this.cv.Scalar(255, 200, 0, 255);  // Green color
+      const reticleThickness = 3;  // Thin line
 
-      // Clean up
-      blurred.delete();
-      circles.delete();
+      // Draw horizontal line
+      this.cv.line(
+        this.frame,
+        new this.cv.Point(centerX - reticleSize, centerY),
+        new this.cv.Point(centerX + reticleSize, centerY),
+        reticleColor,
+        reticleThickness
+      );
 
-      // Schedule next frame
-      let delay = 1000/30 - (Date.now() - begin);
-      setTimeout(() => this.processVideo(colorCanvas, grayCanvas, canvasFrame), delay);
-      
-    } catch (err) {
-      console.error('Error processing video:', err);
-      console.error('Error details:', err.stack);
+      // Draw vertical line
+      this.cv.line(
+        this.frame,
+        new this.cv.Point(centerX, centerY - reticleSize),
+        new this.cv.Point(centerX, centerY + reticleSize),
+        reticleColor,
+        reticleThickness
+      );
+
+      // Display the frame
+      this.cv.imshow(this.canvas, this.frame);
     }
+    
+    // Schedule next frame
+    requestAnimationFrame(() => this.processVideo());
   }
 
-  stopVideo(colorCanvas, grayCanvas) {
+  startProcessing(canvas) {
+    if (this.processTimer) {
+      clearTimeout(this.processTimer);
+    }
+    
+    // Create matrices if they don't exist
+    if (!this.src) {
+      this.src = new this.cv.Mat(this.video.videoHeight, this.video.videoWidth, this.cv.CV_8UC4);
+      this.dst = new this.cv.Mat();
+    }
+    
+    // Get the current frame
+    const context = canvas.getContext('2d');
+    context.drawImage(this.video, 0, 0, this.video.videoWidth, this.video.videoHeight);
+    
+    // Get image data from canvas
+    const imageData = context.getImageData(0, 0, this.video.videoWidth, this.video.videoHeight);
+    this.src.data.set(imageData.data);
+    
+    // Flip the image in both X and Y axes immediately
+    this.cv.flip(this.src, this.src, -1);  // -1 means flip both axes
+    
+    // Convert to grayscale
+    this.cv.cvtColor(this.src, this.dst, this.cv.COLOR_RGBA2GRAY);
+    
+    // Apply Gaussian blur
+    const blurred = new this.cv.Mat();
+    this.cv.GaussianBlur(this.dst, blurred, new this.cv.Size(9, 9), 2, 2);
+    
+    // Detect circles
+    const circles = new this.cv.Mat();
+    this.cv.HoughCircles(
+      blurred,
+      circles,
+      this.cv.HOUGH_GRADIENT,
+      1,
+      blurred.rows / 8,
+      100,
+      25,
+      10,
+      100
+    );
+
+    // Find circle with highest confidence
+    let highestConfidence = -1;
+    let bestCircle = null;
+    
+    for (let i = 0; i < circles.cols; i++) {
+      const x = circles.data32F[i * 3];
+      const y = circles.data32F[i * 3 + 1];
+      const radius = circles.data32F[i * 3 + 2];
+      const confidence = circles.data32F[i * 3 + 3];
+      
+      if (confidence > highestConfidence) {
+        highestConfidence = confidence;
+        bestCircle = { x, y, radius, confidence };
+      }
+    }
+
+    // Convert blurred image to color for display
+    this.processedFrame = new this.cv.Mat();
+    this.cv.cvtColor(blurred, this.processedFrame, this.cv.COLOR_GRAY2RGBA);
+    
+    // Draw circle if found
+    if (bestCircle) {
+      this.cv.circle(this.processedFrame, new this.cv.Point(bestCircle.x, bestCircle.y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
+      this.cv.circle(this.processedFrame, new this.cv.Point(bestCircle.x, bestCircle.y), bestCircle.radius, new this.cv.Scalar(0, 255, 0, 255), 2);
+    }
+
+    // Clean up
+    blurred.delete();
+    circles.delete();
+    
+    // Enter process mode
+    this.isInProcessMode = true;
+    
+    // Set timer to return to normal view after 2 seconds
+    this.processTimer = setTimeout(() => {
+      this.isInProcessMode = false;
+      if (this.processedFrame) {
+        this.processedFrame.delete();
+        this.processedFrame = null;
+      }
+      this.processTimer = null;
+    }, 2000);
+  }
+
+  stopVideo(canvas) {
     console.log('Stopping video...');
     this.isProcessing = false;
+    
+    if (this.processTimer) {
+      clearTimeout(this.processTimer);
+      this.processTimer = null;
+    }
+    
+    if (this.processedFrame) {
+      this.processedFrame.delete();
+      this.processedFrame = null;
+    }
     
     if (this.video && this.video.srcObject) {
       this.video.srcObject.getTracks().forEach(track => track.stop());
@@ -175,11 +303,9 @@ export class VideoManager {
       this.dst = null;
     }
     
-    // Clear canvases
-    const ctx1 = colorCanvas.getContext('2d');
-    const ctx2 = grayCanvas.getContext('2d');
-    ctx1.clearRect(0, 0, colorCanvas.width, colorCanvas.height);
-    ctx2.clearRect(0, 0, grayCanvas.width, grayCanvas.height);
+    // Clear canvas
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     console.log('Video stopped and cleaned up');
   }
