@@ -11,7 +11,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/png" sizes="16x16" href="public/lumen-icon.png">
   <link rel="shortcut icon" type="image/x-icon" href="public/lumen-icon.png">
-  <script type="module" src="/main.js"></script>
+  
+  <script src="opencv.js"></script>
+  <script type="module" src="main.js"></script>
+  
   <title>LumenPnP Pasting Utility</title>
 </head>
 
@@ -144,7 +147,25 @@
 
     </div>
 
-    
+    <div class="opencv-section">
+      <div class="opencv-controls">
+        <select id="camera-select"></select>
+        <button id="camera-toggle">Start Camera</button>
+      </div>
+      <div class="opencv-container">
+        <div class="canvas-container">
+          <div class="canvas-wrapper">
+            <div class="canvas-label">Color Feed</div>
+            <canvas id="opencv-canvas"></canvas>
+          </div>
+          <div class="canvas-wrapper">
+            <div class="canvas-label">Grayscale Feed</div>
+            <canvas id="opencv-canvas-gray"></canvas>
+          </div>
+        </div>
+      </div>
+      <canvas id="canvas-frame" style="display: none;"></canvas>
+    </div>
 
   </div>
 

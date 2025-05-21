@@ -5,39 +5,48 @@ import { feederBus } from './feederBus';
 import { gerberManager } from './gerber.js';
 import { slicer } from './slicer.js';
 import { commands } from './commands.js'
+import { PositionManager } from './positionManager.js'
+import { getOpenCV, onOpenCVReady } from './opencv-bridge.js';
+import { VideoManager } from './video.js';
+
+onOpenCVReady(cv => {
+  console.log("OpenCV is ready to use!");
+  
+  const videoManager = new VideoManager(cv);
+  const colorCanvas = document.getElementById('opencv-canvas');
+  const grayCanvas = document.getElementById('opencv-canvas-gray');
+  const canvasFrame = document.getElementById('canvas-frame');
+  const cameraSelect = document.getElementById('camera-select');
+  const cameraToggle = document.getElementById('camera-toggle');
+  
+  // Initialize camera list
+  videoManager.populateCameraList(cameraSelect);
+  
+  let isCameraRunning = false;
+  
+  cameraToggle.addEventListener('click', async () => {
+    if (!isCameraRunning) {
+      try {
+        await videoManager.startVideo(cameraSelect.value, colorCanvas, grayCanvas, canvasFrame);
+        cameraToggle.textContent = 'Stop Camera';
+        isCameraRunning = true;
+      } catch (err) {
+        alert('Error starting camera: ' + err.message);
+      }
+    } else {
+      videoManager.stopVideo(colorCanvas, grayCanvas);
+      cameraToggle.textContent = 'Start Camera';
+      isCameraRunning = false;
+    }
+  });
+});
 
 let modal = new modalManager();
 let serial = new serialManager(modal);
 let feeder = new feederBus(serial, modal);
 let gerber = new gerberManager(serial);
 let _slicer = new slicer(serial);
-
-let positions = [];
-
-document.getElementById("modal-close").addEventListener("click", () => {
-  modal.receivedInput = false;
-  modal.hide();
-});
-
-document.getElementById("modal-ok").addEventListener("keyup", function(event) {
-  if (event.code === "Enter"){
-    event.preventDefault();
-    modal.receivedInput = true;
-    modal.hide();
-  }
-});
-
-document.getElementById("modal-ok").addEventListener("click", () => {
-  modal.receivedInput = true;
-  modal.hide();
-});
-
-document.getElementById("modal-ng").addEventListener("click", () => {
-  modal.receivedInput = false;
-  modal.hide();
-});
-
-
+let positionManager = new PositionManager(serial);
 
 //clears the contents of the repl text field
 function clearReplInput(){
@@ -79,11 +88,11 @@ document.getElementById("repl-input").addEventListener("keyup", function(event) 
 });
 
 document.getElementById("capture-button").addEventListener("click", () => {
-  capture();
+  positionManager.capture();
 });
 
 document.getElementById("export-captured").addEventListener("click", () => {
-  exportCaptured();
+  positionManager.exportCaptured();
 });
 
 document.getElementById("connect").addEventListener("click", () => {
@@ -246,89 +255,15 @@ document.addEventListener("keyup", function(event) {
   
 });
 
-function exportCaptured(){
-  //this function needs to save the positions array to a file
-  //after convertiong it to a json object
-  // it also needs to give the user the opportunity to name it
-  //and save it to their computer
-  const data = JSON.stringify(positions);
-  const blob = new Blob([data], {type: 'text/plain'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href =
-    URL.createObjectURL(blob);
-  a.download = 'positions.json';
-  a.click();
-  URL.revokeObjectURL(url);
-
-}
-
-async function capture(){
-  
-  serial.clearInspectBuffer();
-
-  await serial.send(["G92"])
-
-  const pattern = /X:(.*?) Y:(.*?) Z:(.*?) A:(.*?) B:(.*?) /
-
-  const re = new RegExp(pattern, 'i');
-
-  console.log("serial inspect buffer: ",serial.inspectBuffer)
-
-  for (var i=0; i < serial.inspectBuffer.length; i++) {
-
-      let currLine = serial.inspectBuffer[i];
-      console.log(currLine);
-      
-      let result = re.test(currLine);
-
-      if(result){
-        const matches = re.exec(currLine)
-
-        let newPositionArray = [matches[1], matches[2], matches[3]];
-        positions.push(newPositionArray);
-
-        // Create a new div element
-        const newDiv = document.createElement("div");
-        newDiv.className = "position-item";
-        newDiv.innerHTML = `Position: ${newPositionArray.join(", ")} <button class="remove-btn">X</button>`;
-        
-        // Append the new div to the capture-output div
-        document.getElementById("capture-output").appendChild(newDiv);
-        
-        // Add event listener to the remove button
-        newDiv.querySelector(".remove-btn").addEventListener("click", function() {
-          // Remove the div from the DOM
-          newDiv.remove();
-
-          // Remove the position from the array
-          const index = positions.indexOf(newPositionArray);
-          if (index > -1) {
-            positions.splice(index, 1);
-          }
-
-          console.log("positions: ",positions);
-          
-        });
-      }
-  }
-
-  console.log("positions: ",positions);
-  
-}
-
 let dataFile = document.getElementById("dataFile");
 dataFile.addEventListener("change", async (e) => {
-
   const file = e.target.files[0];
   const data = await file.text();
-  const parsedData = JSON.parse(data);
-  _slicer.positions = parsedData;
-
-  document.getElementById("slicerStatus").innerHTML = "(Captured Positions Loaded)";
-
+  if (positionManager.importFromJSON(data)) {
+    _slicer.positions = positionManager.getPositions();
+    document.getElementById("slicerStatus").innerHTML = "(Captured Positions Loaded)";
+  }
 });
-
 
 const sliceBtn = document.getElementById("sliceBtn");
 const sendBtn = document.getElementById("sendBtn");

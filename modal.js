@@ -11,8 +11,40 @@ export class modalManager {
 
         this.modalClose = document.getElementById("modal-close");
         this.modalOK = document.getElementById("modal-ok");
+        this.modalNG = document.getElementById("modal-ng");
 
         this.receivedInput = undefined;
+
+        // Set up event listeners
+        this.setupEventListeners();
+    }
+
+    setupEventListeners() {
+        // Close button handler
+        this.modalClose.addEventListener("click", () => {
+            this.receivedInput = false;
+            this.hide();
+        });
+
+        // OK button handlers
+        this.modalOK.addEventListener("keyup", (event) => {
+            if (event.code === "Enter") {
+                event.preventDefault();
+                this.receivedInput = true;
+                this.hide();
+            }
+        });
+
+        this.modalOK.addEventListener("click", () => {
+            this.receivedInput = true;
+            this.hide();
+        });
+
+        // NG (No Good) button handler
+        this.modalNG.addEventListener("click", () => {
+            this.receivedInput = false;
+            this.hide();
+        });
     }
 
     timeout = async ms => new Promise(res => setTimeout(res, ms));
