@@ -28,68 +28,60 @@
   </div>
 
   <div id="main-app">
-    <div id="topRow">
-      <div id="capture">
-        <h2 style="width:100%">Capture Positions</h2>
-        <p>
-          Use this tool to capture positions of where you'd like to dispense paste. After connecting, hold <code>option</code> and use arrow keys to move the head, and <code>[ ]</code> to move
-          in Z. Hold <code>shift</code> instead to move faster. You can also jog using the buttons below.
-        </p>
-        <p>
-          When you've reached a position, click <code>Capture</code> to capture the current position. Repeat for any other locations and click <code>Export</code> to export the positions as a JSON file.
-        </p>
-        <p>
-          If you've already generated a position file, you can load it in by clicking <code>Choose File</code> and selecting the file. Once you've done this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
-        </p>
-
-        <div id="capture-buttons">
-          <button id="home" type="button" class="goldenrod-button">Home</button> <br />
-          <button id="capture-button" type="button" class="goldenrod-button">Capture</button><br />
-          <button id="export-captured" type="buttom" class="goldenrod-button">Export</button>
+    
+    <div id="leftColumn">
+      
+      <div class="section-container" id="jobPrep">
+        <div class="import-section">
+          <div class="button-row">
+            <input type="file" id="jobFile" accept=".json" style="display: none;" />
+            <button class="goldenrod-button" id="importJob" type="button">Import Job</button>
+            OR
+            <button class="goldenrod-button">Import Gerber</button>
+            <button class="goldenrod-button">Import POS</button>
+          </div>
+        </div>
+        <div class="settings-container">
+          <div class="settings-section">
+            <h2>Job Settings</h2>
+            <p>Dispense Degrees:</p>
+            <input type="number" id="jobDispenseDeg" min="5" max="300" value="30" />
+            <p>Retraction Degrees:</p>
+            <input type="number" id="jobRetractionDeg" min="1" max="200" value="1" />
+            <p>Dwell Milliseconds:</p>
+            <input type="number" id="jobDwellMs" min="0" max="5000" value="100" />
+          </div>
+          <div class="positions-section">
+            <div class="positions-header">
+              <h2>Job Positions</h2>
+              <button id="capturePosition" class="goldenrod-button">Capture Position</button>
+            </div>
+            <div class="positions-list">
+              <!-- Positions will be added here dynamically -->
+            </div>
+          </div>
         </div>
 
-        <input type="file" id="dataFile" accept="application/json" />
-        <div id="capture-output">
-        </div>
-      </div>
+        <div class="gerber-visualization">
+          <canvas id="pointViz" width="1000" height="1000"></canvas>
 
-      <div id="gerber">
-        <div id="gerberSettings">
-          <h2>Gerber Processor</h2>
-          <p>
-            This tool is for processing paste-layer Gerber files and extracting locations where paste needs to be dispensed. 
-          </p>
-          <p>
-            After loading a .gbr file, jog your paste tip to the position on the board represented with a green dot in the render to the right, and click the "Capture Green Spot Coordinates". This will tell the tool where your board is mounted. After this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
-          </p>
-          <input type="file" id="gerberFile" />
-          <button id="grabGreenSpot" type="button" class="goldenrod-button">Grab Green Spot Coordinates</button>
+          <h3>Generated Gcode</h3>
+          <pre id="generatedGcode"></pre>
+          
         </div>
-        <canvas id="pointViz" width="1000" height="1000"></canvas>
-      </div>
 
-      <div id="sliceSettings">
-        <h2>Slice and Send</h2>
-        <h3 id="slicerStatus">(No Positions Loaded)</h3>
-        <p>Dispense Degrees:</p>
-        <input type="number" id="dispenseDeg" min="5" max="300" value="30" />
-        <p>Retraction Degrees:</p>
-        <input type="number" id="retractionDeg" min="1" max="200" value="1" />
-        <p>Dwell Milliseconds:</p>
-        <input type="number" id="dwellMs" min="0" max="5000" value="100" />
-        <div class="button-row">
-          <button id="sliceBtn" class="goldenrod-button">Slice</button>
-          <button id="sendBtn" class="goldenrod-button">Send</button>
+        <div class="settings-section">
+          <div class="button-row">
+            <button id="exportJob" class="goldenrod-button">Export Job</button>
+            <button id="exportJob" class="goldenrod-button">Run Job</button>
+          </div>
         </div>
       </div>
 
-      <div id="generatedDiv">
-        <h3>Generated Gcode</h3>
-        <pre id="generatedGcode"></pre>
-      </div>
+      
     </div>
 
-    <div id="control-section">
+    <div id="rightColumn">
       <div class="video-feed">
         <canvas id="opencv-canvas"></canvas>
         <button id="process-button" class="goldenrod-button">Process</button>

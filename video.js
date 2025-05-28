@@ -1,19 +1,28 @@
 export class VideoManager {
-  constructor(cv) {
+  constructor(cv, serial) {
     this.cv = cv;
     this.video = null;
-    this.src = null;
-    this.dst = null;
-    this.isProcessing = false;
-    this.isInProcessMode = false;
-    this.processTimer = null;
-    this.processedFrame = null;
+
+    this.serial = serial;
+
+    // canvas object that we write to
     this.canvas = null;
+
+    // this is the raw frame from the cam, oriented correctly
     this.frame = null;
-    this.gray = null;
-    this.blurred = null;
-    this.circles = null;
-    this.cap = null;
+
+    // this is the frame that's been processed through CV
+    this.cvFrame = null;
+
+    // flag that determines if we should display the cv image
+    this.displayCv = false;
+
+    // flag that determines if we need to do the cv operation, or if we can just display this.cvFrame
+    this.needsCv = false;
+
+    // timer that keeps track of how long we show the cv image
+    this.cvDisplayTimer = null;
+
   }
 
   async populateCameraList(selectElement) {
@@ -66,210 +75,207 @@ export class VideoManager {
 
       // Start video
       await this.video.play();
-      this.processVideo();
+      this.videoTick();
     } catch (err) {
       console.error('Error starting video:', err);
       throw err;
     }
   }
 
-  processVideo() {
-    if (!this.video || !this.video.srcObject) return;
-
-    // Create matrices if they don't exist
-    if (!this.frame) {
-      this.frame = new this.cv.Mat(this.video.videoHeight, this.video.videoWidth, this.cv.CV_8UC4);
-      this.gray = new this.cv.Mat();
-      this.blurred = new this.cv.Mat();
-      this.circles = new this.cv.Mat();
-    }
-
-    if (this.isInProcessMode && this.processedFrame) {
-      // Draw reticle on processed frame
-      const centerX = this.processedFrame.cols / 2;
-      const centerY = this.processedFrame.rows / 2;
-      const reticleSize = 20;  // Size of the reticle lines
-      const reticleColor = new this.cv.Scalar(255, 200, 0, 255);  // Green color
-      const reticleThickness = 3;  // Thin line
-
-      // Draw horizontal line
-      this.cv.line(
-        this.processedFrame,
-        new this.cv.Point(centerX - reticleSize, centerY),
-        new this.cv.Point(centerX + reticleSize, centerY),
-        reticleColor,
-        reticleThickness
-      );
-
-      // Draw vertical line
-      this.cv.line(
-        this.processedFrame,
-        new this.cv.Point(centerX, centerY - reticleSize),
-        new this.cv.Point(centerX, centerY + reticleSize),
-        reticleColor,
-        reticleThickness
-      );
-
-      // Display the processed frame
-      this.cv.imshow(this.canvas, this.processedFrame);
-    } else {
-      // Draw video frame to canvas
-      const context = this.canvas.getContext('2d');
-      context.drawImage(this.video, 0, 0, this.video.videoWidth, this.video.videoHeight);
-      
-      // Get image data from canvas
-      const imageData = context.getImageData(0, 0, this.video.videoWidth, this.video.videoHeight);
-      this.frame.data.set(imageData.data);
-      
-      // Flip the image in both X and Y axes immediately
-      this.cv.flip(this.frame, this.frame, -1);  // -1 means flip both axes
-      
-      // Convert to grayscale
-      this.cv.cvtColor(this.frame, this.gray, this.cv.COLOR_RGBA2GRAY);
-      
-      // Apply Gaussian blur
-      this.cv.GaussianBlur(this.gray, this.blurred, new this.cv.Size(9, 9), 2, 2);
-      
-      // Detect circles
-      this.cv.HoughCircles(
-        this.blurred,
-        this.circles,
-        this.cv.HOUGH_GRADIENT,
-        1,
-        this.blurred.rows / 8,
-        50,
-        200,
-        25,
-        100
-      );
-
-      // Draw the detected circles
-      for (let i = 0; i < this.circles.cols; i++) {
-        const x = this.circles.data32F[i * 3];
-        const y = this.circles.data32F[i * 3 + 1];
-        const radius = this.circles.data32F[i * 3 + 2];
-
-        // Draw circle center
-        this.cv.circle(this.frame, new this.cv.Point(x, y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
-        // Draw circle outline
-        this.cv.circle(this.frame, new this.cv.Point(x, y), radius, new this.cv.Scalar(255, 0, 0, 255), 3);
-      }
-
-      // Draw reticle on live frame
-      const centerX = this.frame.cols / 2;
-      const centerY = this.frame.rows / 2;
-      const reticleSize = 20;  // Size of the reticle lines
-      const reticleColor = new this.cv.Scalar(255, 200, 0, 255);  // Green color
-      const reticleThickness = 3;  // Thin line
-
-      // Draw horizontal line
-      this.cv.line(
-        this.frame,
-        new this.cv.Point(centerX - reticleSize, centerY),
-        new this.cv.Point(centerX + reticleSize, centerY),
-        reticleColor,
-        reticleThickness
-      );
-
-      // Draw vertical line
-      this.cv.line(
-        this.frame,
-        new this.cv.Point(centerX, centerY - reticleSize),
-        new this.cv.Point(centerX, centerY + reticleSize),
-        reticleColor,
-        reticleThickness
-      );
-
-      // Display the frame
-      this.cv.imshow(this.canvas, this.frame);
-    }
+  addReticle(frame){
+    // Draw reticle on processed frame
+    const centerX = frame.cols / 2;
+    const centerY = frame.rows / 2;
+    const reticleSize = 20;  // Size of the reticle lines
+    const reticleColor = new this.cv.Scalar(255, 200, 0, 255);  // Green color
+    const reticleThickness = 3;  // Thin line
     
-    // Schedule next frame
-    requestAnimationFrame(() => this.processVideo());
+    // Always clone the input frame to avoid modifying the original
+    let frameWithReticle = frame.clone();
+    
+    // Draw horizontal line
+    this.cv.line(
+        frameWithReticle,
+        new this.cv.Point(centerX - reticleSize, centerY),
+        new this.cv.Point(centerX + reticleSize, centerY),
+        reticleColor,
+        reticleThickness
+    );
+
+    // Draw vertical line
+    this.cv.line(
+        frameWithReticle,
+        new this.cv.Point(centerX, centerY - reticleSize),
+        new this.cv.Point(centerX, centerY + reticleSize),
+        reticleColor,
+        reticleThickness
+    );
+
+    return frameWithReticle;
   }
 
-  startProcessing(canvas) {
+  showFrame(frame){
+
+    // Display the processed frame
+    this.cv.imshow(this.canvas, frame);
+
+  }
+
+  // Returns the position of the highest-scoring circle, or null if no circles found
+  detectCircle() {
+    try {
+        // Clone frame to this.cvFrame
+        this.cvFrame = this.frame.clone();
+
+        // Convert to grayscale
+        let gray = new this.cv.Mat();
+        this.cv.cvtColor(this.cvFrame, gray, this.cv.COLOR_RGBA2GRAY);
+        
+        // Apply Gaussian blur
+        this.cv.GaussianBlur(gray, gray, new this.cv.Size(9, 9), 2, 2);
+        
+        // Create a Mat to store the circles
+        let circles = new this.cv.Mat();
+        
+        // Detect circles
+        this.cv.HoughCircles(
+            gray,
+            circles,
+            this.cv.HOUGH_GRADIENT,
+            1,
+            gray.rows / 8,
+            50,
+            50,
+            25,
+            100
+        );
+
+        let bestCircle = null;
+        if (circles.cols > 0) {
+            // Get the first (highest-scoring) circle
+            const x = circles.data32F[0];
+            const y = circles.data32F[1];
+            const radius = circles.data32F[2];
+            bestCircle = [x, y];
+
+            // Draw the detected circle
+            this.cv.circle(this.cvFrame, new this.cv.Point(x, y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
+            this.cv.circle(this.cvFrame, new this.cv.Point(x, y), radius, new this.cv.Scalar(255, 0, 0, 255), 3);
+        }
+
+        // Clean up
+        gray.delete();
+        circles.delete();
+
+        return bestCircle;
+    } catch (error) {
+        console.error('Error in detectCircle:', error);
+        return null;
+    }
+  }
+
+  // this is what runs like 60hz, and determines if we're showing processed or just streaming
+  // then it kicks off whichever we're doing!
+
+  videoTick() {
+    // first, we check if shit is set up(TODO move this to startvideo) 
+
+    // exit if shit isnt set up
+    if (!this.video || !this.video.srcObject) return;
+
+    // Create frame mat if it doesn't exist or if dimensions changed
+    if (!this.frame || 
+        this.frame.rows !== this.video.videoHeight || 
+        this.frame.cols !== this.video.videoWidth) {
+      if (this.frame) {
+        this.frame.delete();
+      }
+      this.frame = new this.cv.Mat(this.video.videoHeight, this.video.videoWidth, this.cv.CV_8UC4);
+    }
+
+    // Only update the frame if we're not in CV display mode
+    if (!this.displayCv) {
+        // draw video to canvas so we can pull from it
+        const context = this.canvas.getContext('2d');
+        context.drawImage(this.video, 0, 0, this.video.videoWidth, this.video.videoHeight);
+        
+        // pull image data out of the canvas
+        const imageData = context.getImageData(0, 0, this.video.videoWidth, this.video.videoHeight);
+        
+        // Convert ImageData to Mat
+        const tempMat = this.cv.matFromImageData(imageData);
+        tempMat.copyTo(this.frame);
+        tempMat.delete();
+        
+        // Flip the image in both X and Y axes immediately
+        this.cv.flip(this.frame, this.frame, -1);  // -1 means flip both axes
+
+        this.frame = this.addReticle(this.frame);
+        this.showFrame(this.frame);
+    } else {
+        // if we need to perform cv
+        if (this.needsCv) {
+            console.log("Performing CV");
+            
+            // Get the current frame for processing
+            const context = this.canvas.getContext('2d');
+            context.drawImage(this.video, 0, 0, this.video.videoWidth, this.video.videoHeight);
+            const imageData = context.getImageData(0, 0, this.video.videoWidth, this.video.videoHeight);
+            const tempMat = this.cv.matFromImageData(imageData);
+            tempMat.copyTo(this.frame);
+            tempMat.delete();
+            this.cv.flip(this.frame, this.frame, -1);
+
+            const [x_px, y_px] = this.detectCircle();
+            if (x_px !== null && y_px !== null) {
+                // Calculate center of canvas
+                const centerX = this.canvas.width / 2;
+                const centerY = this.canvas.height / 2;
+            
+                // Calculate offset from center
+                const offsetX = x_px - centerX;
+                const offsetY = -(y_px - centerY);  // Invert Y coordinate
+            
+                const scalingFactor = 0.02;
+                // Scale down the offsets
+                const scaledOffsetX = offsetX * scalingFactor;
+                const scaledOffsetY = offsetY * scalingFactor;
+            
+                console.log(`Circle detected at offset from center: X=${offsetX.toFixed(1)}, Y=${offsetY.toFixed(1)}`);
+                console.log(`Sending jog commands: X=${scaledOffsetX.toFixed(1)}, Y=${scaledOffsetY.toFixed(1)}`);
+
+                // Send jog commands using relative positioning
+                this.serial.goToRelative(scaledOffsetX.toFixed(1), scaledOffsetY.toFixed(1));
+            }
+
+            this.cvFrame = this.addReticle(this.cvFrame);
+            this.needsCv = false;
+        }
+
+        // Show the processed frame
+        this.showFrame(this.cvFrame);
+    }
+    
+    // set next frame to fire
+    requestAnimationFrame(() => this.videoTick());
+  }
+
+  startProcessing() {
+    // Enter cv display mode, request we perform cv
+    this.needsCv = true;
+    this.displayCv = true;
+    
+    // Set timer to return to normal view after 2 seconds
     if (this.processTimer) {
       clearTimeout(this.processTimer);
     }
     
-    // Create matrices if they don't exist
-    if (!this.src) {
-      this.src = new this.cv.Mat(this.video.videoHeight, this.video.videoWidth, this.cv.CV_8UC4);
-      this.dst = new this.cv.Mat();
-    }
-    
-    // Get the current frame
-    const context = canvas.getContext('2d');
-    context.drawImage(this.video, 0, 0, this.video.videoWidth, this.video.videoHeight);
-    
-    // Get image data from canvas
-    const imageData = context.getImageData(0, 0, this.video.videoWidth, this.video.videoHeight);
-    this.src.data.set(imageData.data);
-    
-    // Flip the image in both X and Y axes immediately
-    this.cv.flip(this.src, this.src, -1);  // -1 means flip both axes
-    
-    // Convert to grayscale
-    this.cv.cvtColor(this.src, this.dst, this.cv.COLOR_RGBA2GRAY);
-    
-    // Apply Gaussian blur
-    const blurred = new this.cv.Mat();
-    this.cv.GaussianBlur(this.dst, blurred, new this.cv.Size(9, 9), 2, 2);
-    
-    // Detect circles
-    const circles = new this.cv.Mat();
-    this.cv.HoughCircles(
-      blurred,
-      circles,
-      this.cv.HOUGH_GRADIENT,
-      1,
-      blurred.rows / 8,
-      100,
-      25,
-      10,
-      100
-    );
-
-    // Find circle with highest confidence
-    let highestConfidence = -1;
-    let bestCircle = null;
-    
-    for (let i = 0; i < circles.cols; i++) {
-      const x = circles.data32F[i * 3];
-      const y = circles.data32F[i * 3 + 1];
-      const radius = circles.data32F[i * 3 + 2];
-      const confidence = circles.data32F[i * 3 + 3];
-      
-      if (confidence > highestConfidence) {
-        highestConfidence = confidence;
-        bestCircle = { x, y, radius, confidence };
-      }
-    }
-
-    // Convert blurred image to color for display
-    this.processedFrame = new this.cv.Mat();
-    this.cv.cvtColor(blurred, this.processedFrame, this.cv.COLOR_GRAY2RGBA);
-    
-    // Draw circle if found
-    if (bestCircle) {
-      this.cv.circle(this.processedFrame, new this.cv.Point(bestCircle.x, bestCircle.y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
-      this.cv.circle(this.processedFrame, new this.cv.Point(bestCircle.x, bestCircle.y), bestCircle.radius, new this.cv.Scalar(0, 255, 0, 255), 2);
-    }
-
-    // Clean up
-    blurred.delete();
-    circles.delete();
-    
-    // Enter process mode
-    this.isInProcessMode = true;
-    
-    // Set timer to return to normal view after 2 seconds
     this.processTimer = setTimeout(() => {
-      this.isInProcessMode = false;
-      if (this.processedFrame) {
-        this.processedFrame.delete();
-        this.processedFrame = null;
+      this.displayCv = false;
+      this.needsCv = false;
+      if (this.cvFrame) {
+        this.cvFrame.delete();
+        this.cvFrame = null;
       }
       this.processTimer = null;
     }, 2000);

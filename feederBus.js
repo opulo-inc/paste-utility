@@ -10,6 +10,20 @@ import feederIcon from './public/feeder-icon.png'
 // #1 above is replaced with scanning and a box pops up for each found feeder. all the unicast commands now become buttons and fields in each one of those boxes.
 // 2, 3, and 4 are all the same
 
+export let commands = {
+    GET_ID: [0x01, "UNICAST", 1],
+    INITIALIZE: [0x02, "UNICAST", 13],
+    GET_VERSION: [0x03, "UNICAST", 1],
+    MOVE_FEED_FORWARD: [0x04, "UNICAST", 2],
+    MOVE_FEED_BACKWARD: [0x05, "UNICAST", 2],
+    MOVE_FEED_STATUS: [0x06, "UNICAST", 1],
+    VENDOR_OPTIONS: [0xbf, "UNICAST", 0],
+    GET_FEEDER_ADDRESS: [0xc0, "BROADCAST", 13],
+    IDENTIFY_FEEDER: [0xc1, "BROADCAST", 13],
+    PROGRAM_FEEDER_FLOOR: [0xc2, "BROADCAST", 14],
+    UNINITIALIZED_FEEDERS_RESPOND: [0xc3, "BROADCAST", 1]
+};
+
 export class feederBus {
 
     // fake enum in the structure of [command_byte, unicast/broadcast, send payload length]

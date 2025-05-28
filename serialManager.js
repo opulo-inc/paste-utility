@@ -132,10 +132,15 @@ export class serialManager {
 
                     while(metabuffer.indexOf("\n") != -1){
                         let splitted = metabuffer.split('\n');
+
                         this.receiveBuffer.push(splitted[0]);
                         this.appendToConsole(splitted[0], false);
+
                         this.inspectBuffer.push(splitted[0]);
+
                         metabuffer = metabuffer.split('\n').slice(1).join('\n');
+
+                        
                     }
                 }
             } catch (error) {
@@ -198,8 +203,6 @@ export class serialManager {
                     clearTimeout(this.timeoutID)
                     this.setOkRespTimeout();
                 }
-
-                //console.log("whole buffer: ",this.receiveBuffer);
 
                 await new Promise(resolve => setTimeout(resolve, 50)); // Small delay to avoid busy-waiting
 
@@ -317,7 +320,7 @@ export class serialManager {
 
         const delayVal = 50;
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
 
         let msb, csb, lsb;
         const regex = new RegExp('data:(..)');
@@ -325,15 +328,16 @@ export class serialManager {
         //send command array
         await this.send(commandArrayLeft);
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
 
         await this.send(["M260 A109 B6 S1"]);
         await this.send(["M261 A109 B1 S1"]);
 
         await this.delay(delayVal);
 
-        for (var i=0, x=this.receiveBuffer.length; i<x; i++) {
-            let currLine = this.receiveBuffer[i];
+        for (var i=0, x=this.inspectBuffer.length; i<x; i++) {
+            let currLine = this.inspectBuffer[i];
+            console.log(this.inspectBuffer)
             let result = regex.test(currLine);
             if(result){
                 msb = currLine.match("data:(..)")[1];
@@ -341,15 +345,15 @@ export class serialManager {
             }
         }
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
         
         await this.send(["M260 A109 B7 S1"]);
         await this.send(["M261 A109 B1 S1"]);
 
         await this.delay(delayVal);
 
-        for (var i=0, x=this.receiveBuffer.length; i<x; i++) {
-            let currLine = this.receiveBuffer[i];
+        for (var i=0, x=this.inspectBuffer.length; i<x; i++) {
+            let currLine = this.inspectBuffer[i];
             let result = regex.test(currLine);
             if(result){
                 csb = currLine.match("data:(..)")[1];
@@ -357,15 +361,15 @@ export class serialManager {
             }
         }
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
         
         await this.send(["M260 A109 B8 S1"]);
         await this.send(["M261 A109 B1 S1"]);
 
         await this.delay(delayVal);
 
-        for (var i=0, x=this.receiveBuffer.length; i<x; i++) {
-            let currLine = this.receiveBuffer[i];
+        for (var i=0, x=this.inspectBuffer.length; i<x; i++) {
+            let currLine = this.inspectBuffer[i];
             let result = regex.test(currLine);
             if(result){
                 lsb = currLine.match("data:(..)")[1];
@@ -382,6 +386,8 @@ export class serialManager {
         // clear biggest bit for actual value calc
         //msb &= 0x7F;
 
+        console.log(msb, csb, lsb)
+
         let result = parseInt(msb+csb+lsb, 16);
 
         if(result & (1 << 23)){
@@ -392,7 +398,7 @@ export class serialManager {
 
         let resp = await this.modal.show("Left Vacuum Sensor Value", result);
 
-        this.clearBuffer();        
+        this.clearInspectBuffer();      
 
     }
 
@@ -412,20 +418,20 @@ export class serialManager {
 
         const delayVal = 50;
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
 
         //send command array
         await this.send(commandArrayRight);
         await this.delay(delayVal);
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
 
         await this.send(["M260 A109 B6 S1"]);
         await this.send(["M261 A109 B1 S1"]);
         await this.delay(delayVal);
 
-        for (var i=0, x=this.receiveBuffer.length; i<x; i++) {
-            let currLine = this.receiveBuffer[i];
+        for (var i=0, x=this.inspectBuffer.length; i<x; i++) {
+            let currLine = this.inspectBuffer[i];
             let result = regex.test(currLine);
             if(result){
                 msb = currLine.match("data:(..)")[1];
@@ -433,14 +439,14 @@ export class serialManager {
             }
         }
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
         
         await this.send(["M260 A109 B7 S1"]);
         await this.send(["M261 A109 B1 S1"]);
         await this.delay(delayVal);
 
-        for (var i=0, x=this.receiveBuffer.length; i<x; i++) {
-            let currLine = this.receiveBuffer[i];
+        for (var i=0, x=this.inspectBuffer.length; i<x; i++) {
+            let currLine = this.inspectBuffer[i];
             let result = regex.test(currLine);
             if(result){
                 csb = currLine.match("data:(..)")[1];
@@ -448,14 +454,14 @@ export class serialManager {
             }
         }
 
-        this.clearBuffer();
+        this.clearInspectBuffer();
         
         await this.send(["M260 A109 B8 S1"]);
         await this.send(["M261 A109 B1 S1"]);
         await this.delay(delayVal);
 
-        for (var i=0, x=this.receiveBuffer.length; i<x; i++) {
-            let currLine = this.receiveBuffer[i];
+        for (var i=0, x=this.inspectBuffer.length; i<x; i++) {
+            let currLine = this.inspectBuffer[i];
             let result = regex.test(currLine);
             if(result){
                 lsb = currLine.match("data:(..)")[1];
@@ -481,6 +487,8 @@ export class serialManager {
         }
 
         await this.modal.show("Right Vacuum Sensor Value", result);
+
+        this.clearInspectBuffer();
 
     }
 
@@ -701,6 +709,14 @@ export class serialManager {
         element.click();
 
         document.body.removeChild(element);
+    }
+
+    goToRelative(x, y){
+        this.send([
+            "G91",  // Set relative positioning
+            `G0 X${x} Y${y}`,  // Move relative to current position
+            "G90"   // Set absolute positioning
+          ]);
     }
   
   }
