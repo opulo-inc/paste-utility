@@ -1,37 +1,36 @@
 export class Job {
-    constructor(serial) {
-        this.points = [];  // Array of {x, y, z} coordinate objects
-        this.dispenseDegrees = 30;  // Default value
-        this.retractionDegrees = 1;  // Default value
-        this.dwellMilliseconds = 100;  // Default value
-        this.serial = serial;
+    constructor(lumen) {
+        this.points = [];  
+        this.dispenseDegrees = 30;  
+        this.retractionDegrees = 1;  
+        this.dwellMilliseconds = 100;  
+        this.lumen = lumen;
     }
 
-    /**
-     * Capture the current position and add it to the job
-     * @returns {Promise<void>}
-     */
     async capture() {
         console.log('Job capture method called');
-        if (!this.serial) {
+        if (!this.lumen.serial) {
             console.error('Serial manager not set');
             return;
         }
+
+        //TODO move almost all of this to lumen
+
         console.log('Serial manager is set, proceeding with capture');
 
-        this.serial.clearInspectBuffer();
+        this.lumen.serial.clearInspectBuffer();
         console.log('Inspect buffer cleared');
         
-        await this.serial.send(["G92"]);
+        await this.lumen.serial.send(["G92"]);
         console.log('G92 command sent');
 
         const pattern = /X:(.*?) Y:(.*?) Z:(.*?) A:(.*?) B:(.*?) /;
         const re = new RegExp(pattern, 'i');
 
-        console.log("Serial inspect buffer contents:", this.serial.inspectBuffer);
+        console.log("Serial inspect buffer contents:", this.lumen.serial.inspectBuffer);
 
-        for (var i = 0; i < this.serial.inspectBuffer.length; i++) {
-            let currLine = this.serial.inspectBuffer[i];
+        for (var i = 0; i < this.lumen.serial.inspectBuffer.length; i++) {
+            let currLine = this.lumen.serial.inspectBuffer[i];
             console.log('Checking line:', currLine);
             
             let result = re.test(currLine);
@@ -52,108 +51,50 @@ export class Job {
         console.log('No valid position found in inspect buffer');
     }
 
-    /**
-     * Add a point to the job
-     * @param {number} x - X coordinate
-     * @param {number} y - Y coordinate
-     * @param {number} z - Z coordinate
-     */
     addPoint(x, y, z) {
         this.points.push({ x, y, z });
     }
 
-    /**
-     * Clear all points from the job
-     */
-    clearPoints() {
-        this.points = [];
-    }
 
-    /**
-     * Set the job parameters
-     * @param {number} dispenseDegrees - Degrees to dispense
-     * @param {number} retractionDegrees - Degrees to retract
-     * @param {number} dwellMilliseconds - Milliseconds to dwell
-     */
-    setParameters(dispenseDegrees, retractionDegrees, dwellMilliseconds) {
-        this.dispenseDegrees = dispenseDegrees;
-        this.retractionDegrees = retractionDegrees;
-        this.dwellMilliseconds = dwellMilliseconds;
-    }
-
-    /**
-     * Import job data from a JSON file
-     * @param {File} file - The file to import
-     * @returns {Promise<{success: boolean, error?: string}>} - Import result
-     */
     async importFromFile(file) {
-        try {
-            // Read the file
-            const jsonString = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result);
-                reader.onerror = (error) => reject(error);
-                reader.readAsText(file);
-            });
+    
+        const jsonString = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (error) => reject(error);
+            reader.readAsText(file);
+        });
 
-            // Parse and validate the data
-            const data = JSON.parse(jsonString);
-            
-            // Validate required fields
-            if (!data.points || !Array.isArray(data.points)) {
-                throw new Error('Invalid points data');
-            }
-            if (typeof data.dispenseDegrees !== 'number') {
-                throw new Error('Invalid dispense degrees');
-            }
-            if (typeof data.retractionDegrees !== 'number') {
-                throw new Error('Invalid retraction degrees');
-            }
-            if (typeof data.dwellMilliseconds !== 'number') {
-                throw new Error('Invalid dwell milliseconds');
-            }
+        const data = JSON.parse(jsonString);
+        
+        this.points = data.points;
+        this.dispenseDegrees = data.dispenseDegrees;
+        this.retractionDegrees = data.retractionDegrees;
+        this.dwellMilliseconds = data.dwellMilliseconds;
 
-            // Import the data
-            this.points = data.points;
-            this.dispenseDegrees = data.dispenseDegrees;
-            this.retractionDegrees = data.retractionDegrees;
-            this.dwellMilliseconds = data.dwellMilliseconds;
+        // ui update
+        const jobDispenseDeg = document.getElementById('jobDispenseDeg');
+        const jobRetractionDeg = document.getElementById('jobRetractionDeg');
+        const jobDwellMs = document.getElementById('jobDwellMs');
 
-            // Update UI elements
-            const jobDispenseDeg = document.getElementById('jobDispenseDeg');
-            const jobRetractionDeg = document.getElementById('jobRetractionDeg');
-            const jobDwellMs = document.getElementById('jobDwellMs');
+        if (jobDispenseDeg) jobDispenseDeg.value = this.dispenseDegrees;
+        if (jobRetractionDeg) jobRetractionDeg.value = this.retractionDegrees;
+        if (jobDwellMs) jobDwellMs.value = this.dwellMilliseconds;
+        
+        const positionsList = document.querySelector('.positions-list');
+        positionsList.innerHTML = '';
+        this.points.forEach(point => {
+            this.createPositionElement([point.x, point.y, point.z]);
+        });
 
-            if (jobDispenseDeg) jobDispenseDeg.value = this.dispenseDegrees;
-            if (jobRetractionDeg) jobRetractionDeg.value = this.retractionDegrees;
-            if (jobDwellMs) jobDwellMs.value = this.dwellMilliseconds;
-            
-            // Clear and repopulate positions
-            const positionsList = document.querySelector('.positions-list');
-            positionsList.innerHTML = '';
-            this.points.forEach(point => {
-                this.createPositionElement([point.x, point.y, point.z]);
-            });
-
-            return { success: true };
-        } catch (error) {
-            console.error('Error importing job:', error);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
+        
     }
 
-    /**
-     * Save the job to a file using the native file picker
-     * @returns {Promise<void>}
-     */
+
     async saveToFile() {
         const jsonData = this.export();
         const blob = new Blob([jsonData], { type: 'application/json' });
         
-        // Show the native save dialog
         const handle = await window.showSaveFilePicker({
             suggestedName: 'job.json',
             types: [{
@@ -164,32 +105,9 @@ export class Job {
             }]
         });
         
-        // Create a FileSystemWritableFileStream to write to
         const writable = await handle.createWritable();
-        // Write the contents
         await writable.write(blob);
-        // Close the file and write the contents to disk
         await writable.close();
-    }
-
-    /**
-     * Get the number of points in the job
-     * @returns {number} - Number of points
-     */
-    getPointCount() {
-        return this.points.length;
-    }
-
-    /**
-     * Get a point by index
-     * @param {number} index - Index of the point to get
-     * @returns {Object|null} - Point object or null if index is invalid
-     */
-    getPoint(index) {
-        if (index >= 0 && index < this.points.length) {
-            return this.points[index];
-        }
-        return null;
     }
 
     createPositionElement(position) {
@@ -206,7 +124,7 @@ export class Job {
         
         // Add click handler for Move To button
         newDiv.querySelector('.move-btn').addEventListener('click', () => {
-            this.serial.send([
+            this.lumen.serial.send([
                 "G90",  // Set absolute positioning
                 `G0 X${position[0]} Y${position[1]} Z${position[2]}`  // Move to position
             ]);
@@ -223,25 +141,18 @@ export class Job {
         positionsList.appendChild(newDiv);
     }
 
-    /**
-     * Capture the current position and update UI
-     * @param {Function} createPositionElement - Function to create UI element for position
-     * @returns {Promise<void>}
-     */
+
     async capturePosition() {
-        console.log('Starting capture...');
+
         await this.capture();
-        console.log('Capture completed');
         
         const lastPoint = this.getPoint(this.getPointCount() - 1);
         console.log('Last captured point:', lastPoint);
         
         if (lastPoint) {
-            console.log('Creating position element for point:', lastPoint);
+            
             this.createPositionElement([lastPoint.x, lastPoint.y, lastPoint.z]);
-        } else {
-            console.log('No point was captured');
-        }
+        } 
     }
 
     // generates array of commands to send
@@ -293,13 +204,10 @@ export class Job {
         //todo make it such that we can cancel a job
 
         //send sliced gcode
-        this.serial.send(this.slice())
+        this.lumen.serial.send(this.slice())
     }
 
-    /**
-     * Export job data to a JSON string
-     * @returns {string} - JSON string containing job data
-     */
+
     export() {
         const data = {
             points: this.points,
@@ -307,7 +215,7 @@ export class Job {
             retractionDegrees: this.retractionDegrees,
             dwellMilliseconds: this.dwellMilliseconds
         };
-        return JSON.stringify(data, null, 2);  // Pretty print with 2-space indentation
+        return JSON.stringify(data, null, 2);
     }
 
 } 

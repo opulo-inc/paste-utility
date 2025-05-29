@@ -5,39 +5,41 @@ import { gerberManager } from './gerber.js';
 import { onOpenCVReady } from './opencv-bridge.js';
 import { VideoManager } from './video.js';
 import { Job } from './job.js';
+import { Lumen } from './lumen.js'
 
 let modal = new modalManager();
 let serial = new serialManager(modal);
-let gerber = new gerberManager(serial);
-let currentJob = new Job(serial);
+
+let lumen = new Lumen(serial);
+let currentJob = new Job(lumen);
 
 onOpenCVReady(cv => {
   console.log("OpenCV loaded");
   
-  const videoManager = new VideoManager(cv, serial);
+  const videoManager = new VideoManager(cv);
+
+  lumen.addVideoManager(videoManager);
+
   const canvas = document.getElementById('opencv-canvas');
   const cameraSelect = document.getElementById('camera-select');
   const processButton = document.getElementById('process-button');
   
-  // Initialize camera list
   videoManager.populateCameraList(cameraSelect);
   
   let isCameraRunning = false;
   
-  // Job management
-  console.log('Setting up job management');
+  // job stuff
   const importJobButton = document.getElementById('importJob');
   const jobFileInput = document.getElementById('jobFile');
   const exportJobButton = document.getElementById('exportJob');
   
-  // Get job settings elements
+  // settings elements
   const jobDispenseDeg = document.getElementById('jobDispenseDeg');
   const jobRetractionDeg = document.getElementById('jobRetractionDeg');
   const jobDwellMs = document.getElementById('jobDwellMs');
 
   console.log('Job settings elements:', { jobDispenseDeg, jobRetractionDeg, jobDwellMs });
 
-  // Set up job settings event listeners
   if (jobDispenseDeg) {
     jobDispenseDeg.addEventListener('change', (e) => {
       console.log('Dispense degrees changed:', e.target.value);
@@ -132,17 +134,13 @@ onOpenCVReady(cv => {
   
     // Calculate offset from center
     const offsetX = scaledX - centerX;
-    const offsetY = -(scaledY - centerY);  // Invert Y coordinate
+    const offsetY = -(scaledY - centerY); 
   
     const scalingFactor = 0.02;
-    // Scale down the offsets by 0.1
     const scaledOffsetX = offsetX * scalingFactor;
     const scaledOffsetY = offsetY * scalingFactor;
   
-    console.log(`Clicked at offset from center: X=${offsetX.toFixed(1)}, Y=${offsetY.toFixed(1)}`);
-    console.log(`Sending jog commands: X=${scaledOffsetX.toFixed(1)}, Y=${scaledOffsetY.toFixed(1)}`);
 
-    // Send jog commands using relative positioning
     serial.goToRelative(scaledOffsetX.toFixed(1), scaledOffsetY.toFixed(1))
     
   });
@@ -171,7 +169,7 @@ onOpenCVReady(cv => {
 
   processButton.addEventListener('click', () => {
     if (isCameraRunning) {
-      videoManager.startProcessing();
+      lumen.jogToFiducial();
     }
   });
 
@@ -320,7 +318,6 @@ document.getElementById("home-z").addEventListener("click", () => {
   serial.send(["G28 Z"]);
 });
 
-// Capture position button
 document.getElementById('capturePosition').addEventListener('click', async () => {
     try {
         await currentJob.capturePosition();
