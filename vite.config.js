@@ -1,6 +1,5 @@
 export default {
-    // config options
+    base: './',
     optimizeDeps: { exclude: ["fsevents"] },
-
     publicDir: 'public'
 }
