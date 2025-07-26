@@ -9,153 +9,185 @@
   <link href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/lumen-icon-wA_suQRQ.png">
-  <link rel="shortcut icon" type="image/x-icon" href="/assets/lumen-icon-wA_suQRQ.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/lumen-icon-DAD-y5BF.png">
+  <link rel="shortcut icon" type="image/x-icon" href="/assets/lumen-icon-DAD-y5BF.png">
+  
+  <script src="opencv.js"></script>
+  
   <title>LumenPnP Pasting Utility</title>
-  <script type="module" crossorigin src="/assets/index-eKWcmFEk.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-PY_XYy4d.css">
+  <script type="module" crossorigin src="/assets/index-KRwk2RoZ.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BB0sy9qS.css">
 </head>
 
 <body>
   <div id="header-pill">
     <h1>LumenPnP Pasting Utility</h1>
   </div>
-  <button id="connect" type="button">Connect</button>
-  <div id="main-app">
-
-    <div id="topRow">
-      <div id="capture">
-        <h2 style="width:100%">Capture Positions</h2>
-        <p>
-          Use this tool to capture positions of where you'd like to dispense paste. After connecting, hold <code>option</code> and use arrow keys to move the head, and <code>[ ]</code> to move
-          in Z. Hold <code>shift</code> instead to move faster. You can also jog using the buttons below.
-        </p>
-        <p>
-          When you've reached a position, click <code>Capture</code> to capture the current position. Repeat for any other locations and click <code>Export</code> to export the positions as a JSON file.
-        </p>
-        <p>
-          If you've already generated a position file, you can load it in by clicking <code>Choose File</code> and selecting the file. Once you've done this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
-        </p>
-
-        <div id="capture-controls">
-          <div id="pendant">
-            <div id="pendant-buttons">
-              <button id="jog-yp" type="button">Y+</button>
-              <div>
-                <button id="jog-xm" type="button">X-</button>
-
-                <button id="jog-xp" type="button">X+</button>
-              </div>
-
-              <button id="jog-ym" type="button">Y-</button>
-              <br />
-              <div class="alignEvenlyHoriz">
-                <div class="alignbuttonsvert">
-                  <button id="jog-zm" type="button">Head Up</button>
-                  <button id="jog-zp" type="button">Head Down</button>
-                </div>
-                <div class="alignbuttonsvert">
-                  <button id="jog-bp" type="button">Dispense</button>
-                  <button id="jog-bm" type="button">Retract</button>
-                </div>
-              </div>
-
-            </div>
-
-            <div id="speed-slider">
-              <input type="range" writing-mode="vertical-lr" id="jog-distance" list="markers" orient="vertical" step="1"
-                min="1" max="4" value="3" />
-              <datalist id="markers">
-                <option value="1" label="0.1mm"></option>
-                <option value="2" label="1mm"></option>
-                <option value="3" label="10mm"></option>
-                <option value="4" label="100mm"></option>
-              </datalist>
-            </div>
-
-
-          </div>
-          <div id="capture-buttons">
-            <button id="home" type="button">Home</button> <br />
-            <button id="capture-button" type="button">Capture</button><br />
-            <button id="export-captured" type="buttom">Export</button>
-          </div>
-
-          
-
-        </div>
-        <input type="file" id="dataFile" accept="application/json" />
-        <div id="capture-output">
-        </div>
-
-      </div>
-
-      <div id="gerber" class="">
-        <div id="gerberSettings">
-          <h2>Gerber Processor</h2>
-
-          <p>
-            This tool is for processing paste-layer Gerber files and extracting locations where paste needs to be dispensed. 
-          </p>
-          <p>
-            After loading a .gbr file, jog your paste tip to the position on the board represented with a green dot in the render to the right, and click the "Capture Green Spot Coordinates". This will tell the tool where your board is mounted. After this, you can scroll down to the "Slice and Send" section to generate Gcode and run the job.
-          </p>
-  
-          <input type="file" id="gerberFile" />
-  
-          <button id="grabGreenSpot" type="button">Grab Green Spot Coordinates</button>
-  
-        </div>
-  
-  
-        <canvas id="pointViz" width="1000" height="1000"></canvas>
-
-      </div>
-
-    </div>
-
-    <div id="secondRow">
-      <div id="sliceSettings" class="thirdwidth">
-        <h2 style="width:100%">Slice and Send</h2>
-        <h3 id="slicerStatus">(No Positions Loaded)</h3>
-        
-        <p>Dispense Degrees:</p><input type="number" id="dispenseDeg" min="5" max="300" value="30" />
-        <p>Retraction Degrees:</p><input type="number" id="retractionDeg" min="1" max="200" value="1" />
-        <p>Dwell Milliseconds:</p><input type="number" id="dwellMs" min="0" max="5000" value="100" />
-        <br />
-        <button id="sliceBtn" >Slice</button>
-        <br />
-        <button id="sendBtn" >Send</button>
-        
-      </div>
-
-      <div id="generatedDiv" class="thirdwidth">
-        <h3>Generated Gcode</h3>
-        <pre id="generatedGcode" style="border:1px solid black;background-color:white;"></pre>
-      </div>
-
-      <div id="repl">
-        <div id="console"></div>
-        <div id="repl-bottom-row">
-          <button id="send" type="button">Send</button>
-          <input id="repl-input" type="text" placeholder="Send Gcode" />
-        </div>
-        
-      </div>
-
-    </div>
-
-    
-
+  <div id="top-controls">
+    <a href="help.html"><button id="helpButton" style="background-color:gray;height:40px;padding:10px;">Docs</button></a>
+    <select id="camera-select"></select>
+    <button id="connect" type="button">Connect</button>
   </div>
 
-  <div id="footer"><img src="/assets/opulo-gold-alpha-tiny-DUNq2d90.png"></div>
+  <div id="main-app">
+    
+    <div id="leftColumn">
+      
+      <div class="section-container" id="jobPrep">
+        <div class="import-section">
+          <div class="button-row">
+            <input type="file" id="jobFile" accept=".json" style="display: none;" />
+            <input type="file" id="pasteGerberFile" accept=".gbr" style="display: none;" />
+            <input type="file" id="maskGerberFile" accept=".gbr" style="display: none;" />
+            <button class="goldenrod-button" id="importJob" type="button">Import Job</button>
+            OR
+            <button class="goldenrod-button" id="selectPasteGerber" type="button">Select Paste Gerber</button>
+            <span id="pasteGerberFilename"></span>
+            <button class="goldenrod-button" id="selectMaskGerber" type="button">Select Mask Gerber</button>
+            <span id="maskGerberFilename"></span>
+            <button class="goldenrod-button" id="loadGerbers" type="button">Load Gerbers</button>
+          </div>
+        </div>
+        <div class="settings-container">
+          <div class="positions-section">
+            <div class="positions-header">
+              <h2>Job Positions</h2>
+              <button id="getRoughBoardPosition" class="goldenrod-button">Get Rough Board Position</button>
+
+              <button id="performFidCal" class="goldenrod-button">Perform Fid Cal</button>
+              <button id="captureNewPos" class="goldenrod-button">Capture New Position</button>
+            </div>
+            <div class="positions-list">
+            </div>
+          </div>
+          
+        </div>
+
+        <div class="gerber-visualization">
+          <div class="gerber-visualization-container">
+            <canvas id="pointViz" width="500" height="500"></canvas>
+          </div>
+          
+        </div>
+
+        <div class="settings-section">
+          <h2>Job Settings</h2>
+          <div class="settings-row">
+            <div class="setting-item">
+              <label for="jobDispenseDeg">Dispense Degrees:</label>
+              <input type="number" id="jobDispenseDeg" min="1" max="300" value="9" />
+            </div>
+            <div class="setting-item">
+              <label for="jobRetractionDeg">Retraction Degrees:</label>
+              <input type="number" id="jobRetractionDeg" min="1" max="200" value="5" />
+            </div>
+            <div class="setting-item">
+              <label for="jobDwellMs">Dwell Milliseconds:</label>
+              <input type="number" id="jobDwellMs" min="0" max="5000" value="100" />
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="button-row">
+            <button id="exportJob" class="goldenrod-button">Export Job</button>
+            <button id="runJob" class="goldenrod-button">Run Job</button>
+          </div>
+        </div>
+      </div>
+
+      
+    </div>
+
+    <div id="rightColumn">
+      <div class="video-feed">
+        <canvas id="opencv-canvas"></canvas>
+      </div>
+
+      <div class="control-row">
+        <button id="process-button" class="goldenrod-button">Jog to Fid in View</button>
+        <button id="homing-fid-button" class="goldenrod-button">Visual Home</button>
+        <button id="nozzleOffsetCal" class="goldenrod-button">Nozzle Offset Cal</button>
+
+        
+      </div>
+      
+      <div class="control-buttons"> 
+        <div class="control-row">
+          <button id="home-x">Home X</button>
+          <button id="home-y">Home Y</button>
+          <button id="home-z">Home Z</button>
+        </div>
+      </div>
+      
+      <div class="jog-controls">
+        <div class="jog-buttons">
+          <div class="jog-row">
+            <button id="jog-yp" class="goldenrod-button">Y+</button>
+          </div>
+          <div class="jog-row">
+            <button id="jog-xm" class="goldenrod-button">X-</button>
+            
+            <button id="jog-xp" class="goldenrod-button">X+</button>
+          </div>
+          <div class="jog-row">
+            <button id="jog-ym" class="goldenrod-button">Y-</button>
+          </div>
+          <div class="jog-row">
+            <button id="jog-zm" class="goldenrod-button">Z+</button>
+            <button id="jog-zp" class="goldenrod-button">Z-</button>
+          </div>
+          <div class="jog-row">
+            <button class="goldenrod-button" id="extrude-btn">Extrude</button>
+            <button class="goldenrod-button" id="retract-btn">Retract</button>
+          </div>
+        </div>
+        <div class="jog-slider-container">
+          <input type="range" id="jog-distance" min="1" max="4" value="2" step="1" list="jog-distances">
+          <datalist id="jog-distances">
+            <option value="1">100mm</option>
+            <option value="2">10mm</option>
+            <option value="3">1mm</option>
+            <option value="4">0.1mm</option>
+          </datalist>
+        </div>
+        
+      </div>
+
+      <div class="control-row" style="margin-top:15px;">
+        <button id="ring-lights-on">Ring Lights On</button>
+        <button id="ring-lights-off">Ring Lights Off</button>
+      </div>
+
+      <div class="control-row">
+          
+        <button id="left-air-on">Left Air On</button>
+        <button id="left-air-off">Left Air Off</button>
+        <button id="left-vac">Left Vac</button>
+      </div>
+    
+      <div class="control-row">
+        <button id="disable-steppers">Disable Steppers</button>
+      </div>
+      
+
+      <div class="repl-section">
+        <h3>Console</h3>
+        <div id="console"></div>
+        <div id="repl-bottom-row">
+          <input id="repl-input" type="text" placeholder="Send Gcode" />
+          <button id="send" type="button" class="goldenrod-button">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="footer"><img src="/assets/opulo-gold-alpha-tiny-NQ2rZ33T.png"></div>
 
   <div id="modal">
     <div class="flex">
-      <img src="/assets/lumen-icon-wA_suQRQ.png">
+      <img src="/assets/lumen-icon-DAD-y5BF.png">
       <button id="modal-close" class="btn-close">⨉</button>
-
     </div>
 
     <h2 id="modal-title">test</h2>
@@ -165,15 +197,16 @@
       <button id="modal-ng">Cancel</button>
       <button id="modal-ok">OK</button>
     </div>
-
-
-
-
-
   </div>
 
-  <div id="overlay"></div>
+  <div id="toast">
+    <p id="toast-content">test</p>
+    <button id="toast-close" class="btn-close">➡️</button>
+  </div>
 
+
+
+  <div id="overlay"></div>
 </body>
 
 </html>
