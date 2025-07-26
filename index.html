@@ -23,6 +23,7 @@
     <h1>LumenPnP Pasting Utility</h1>
   </div>
   <div id="top-controls">
+    <a href="help.html"><button id="helpButton" style="background-color:gray;height:40px;padding:10px;">Docs</button></a>
     <select id="camera-select"></select>
     <button id="connect" type="button">Connect</button>
   </div>
@@ -35,45 +36,61 @@
         <div class="import-section">
           <div class="button-row">
             <input type="file" id="jobFile" accept=".json" style="display: none;" />
+            <input type="file" id="pasteGerberFile" accept=".gbr" style="display: none;" />
+            <input type="file" id="maskGerberFile" accept=".gbr" style="display: none;" />
             <button class="goldenrod-button" id="importJob" type="button">Import Job</button>
             OR
-            <button class="goldenrod-button">Import Gerber</button>
-            <button class="goldenrod-button">Import POS</button>
+            <button class="goldenrod-button" id="selectPasteGerber" type="button">Select Paste Gerber</button>
+            <span id="pasteGerberFilename"></span>
+            <button class="goldenrod-button" id="selectMaskGerber" type="button">Select Mask Gerber</button>
+            <span id="maskGerberFilename"></span>
+            <button class="goldenrod-button" id="loadGerbers" type="button">Load Gerbers</button>
           </div>
         </div>
         <div class="settings-container">
-          <div class="settings-section">
-            <h2>Job Settings</h2>
-            <p>Dispense Degrees:</p>
-            <input type="number" id="jobDispenseDeg" min="5" max="300" value="30" />
-            <p>Retraction Degrees:</p>
-            <input type="number" id="jobRetractionDeg" min="1" max="200" value="1" />
-            <p>Dwell Milliseconds:</p>
-            <input type="number" id="jobDwellMs" min="0" max="5000" value="100" />
-          </div>
           <div class="positions-section">
             <div class="positions-header">
               <h2>Job Positions</h2>
-              <button id="capturePosition" class="goldenrod-button">Capture Position</button>
+              <button id="getRoughBoardPosition" class="goldenrod-button">Get Rough Board Position</button>
+
+              <button id="performFidCal" class="goldenrod-button">Perform Fid Cal</button>
+              <button id="captureNewPos" class="goldenrod-button">Capture New Position</button>
             </div>
             <div class="positions-list">
-              <!-- Positions will be added here dynamically -->
             </div>
           </div>
+          
         </div>
 
         <div class="gerber-visualization">
-          <canvas id="pointViz" width="1000" height="1000"></canvas>
-
-          <h3>Generated Gcode</h3>
-          <pre id="generatedGcode"></pre>
+          <div class="gerber-visualization-container">
+            <canvas id="pointViz" width="500" height="500"></canvas>
+          </div>
           
+        </div>
+
+        <div class="settings-section">
+          <h2>Job Settings</h2>
+          <div class="settings-row">
+            <div class="setting-item">
+              <label for="jobDispenseDeg">Dispense Degrees:</label>
+              <input type="number" id="jobDispenseDeg" min="1" max="300" value="9" />
+            </div>
+            <div class="setting-item">
+              <label for="jobRetractionDeg">Retraction Degrees:</label>
+              <input type="number" id="jobRetractionDeg" min="1" max="200" value="5" />
+            </div>
+            <div class="setting-item">
+              <label for="jobDwellMs">Dwell Milliseconds:</label>
+              <input type="number" id="jobDwellMs" min="0" max="5000" value="100" />
+            </div>
+          </div>
         </div>
 
         <div class="settings-section">
           <div class="button-row">
             <button id="exportJob" class="goldenrod-button">Export Job</button>
-            <button id="exportJob" class="goldenrod-button">Run Job</button>
+            <button id="runJob" class="goldenrod-button">Run Job</button>
           </div>
         </div>
       </div>
@@ -84,24 +101,17 @@
     <div id="rightColumn">
       <div class="video-feed">
         <canvas id="opencv-canvas"></canvas>
-        <button id="process-button" class="goldenrod-button">Process</button>
+      </div>
+
+      <div class="control-row">
+        <button id="process-button" class="goldenrod-button">Jog to Fid in View</button>
+        <button id="homing-fid-button" class="goldenrod-button">Visual Home</button>
+        <button id="nozzleOffsetCal" class="goldenrod-button">Nozzle Offset Cal</button>
+
+        
       </div>
       
-      <div class="control-buttons">
-        <div class="control-row">
-          <button id="left-air-on">Left Air On</button>
-          <button id="left-air-off">Left Air Off</button>
-        </div>
-        <div class="control-row">
-          <button id="left-vac">Left Vac</button>
-        </div>
-        <div class="control-row">
-          <button id="disable-steppers">Disable Steppers</button>
-        </div>
-        <div class="control-row">
-          <button id="ring-lights-on">Ring Lights On</button>
-          <button id="ring-lights-off">Ring Lights Off</button>
-        </div>
+      <div class="control-buttons"> 
         <div class="control-row">
           <button id="home-x">Home X</button>
           <button id="home-y">Home Y</button>
@@ -116,26 +126,49 @@
           </div>
           <div class="jog-row">
             <button id="jog-xm" class="goldenrod-button">X-</button>
-            <button id="jog-zp" class="goldenrod-button">Z+</button>
+            
             <button id="jog-xp" class="goldenrod-button">X+</button>
           </div>
           <div class="jog-row">
             <button id="jog-ym" class="goldenrod-button">Y-</button>
           </div>
           <div class="jog-row">
-            <button id="jog-zm" class="goldenrod-button">Z-</button>
+            <button id="jog-zm" class="goldenrod-button">Z+</button>
+            <button id="jog-zp" class="goldenrod-button">Z-</button>
+          </div>
+          <div class="jog-row">
+            <button class="goldenrod-button" id="extrude-btn">Extrude</button>
+            <button class="goldenrod-button" id="retract-btn">Retract</button>
           </div>
         </div>
         <div class="jog-slider-container">
           <input type="range" id="jog-distance" min="1" max="4" value="2" step="1" list="jog-distances">
           <datalist id="jog-distances">
-            <option value="1">0.1mm</option>
-            <option value="2">1mm</option>
-            <option value="3">10mm</option>
-            <option value="4">100mm</option>
+            <option value="1">100mm</option>
+            <option value="2">10mm</option>
+            <option value="3">1mm</option>
+            <option value="4">0.1mm</option>
           </datalist>
         </div>
+        
       </div>
+
+      <div class="control-row" style="margin-top:15px;">
+        <button id="ring-lights-on">Ring Lights On</button>
+        <button id="ring-lights-off">Ring Lights Off</button>
+      </div>
+
+      <div class="control-row">
+          
+        <button id="left-air-on">Left Air On</button>
+        <button id="left-air-off">Left Air Off</button>
+        <button id="left-vac">Left Vac</button>
+      </div>
+    
+      <div class="control-row">
+        <button id="disable-steppers">Disable Steppers</button>
+      </div>
+      
 
       <div class="repl-section">
         <h3>Console</h3>
@@ -164,6 +197,13 @@
       <button id="modal-ok">OK</button>
     </div>
   </div>
+
+  <div id="toast">
+    <p id="toast-content">test</p>
+    <button id="toast-close" class="btn-close">➡️</button>
+  </div>
+
+
 
   <div id="overlay"></div>
 </body>

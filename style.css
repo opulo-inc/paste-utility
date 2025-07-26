@@ -194,6 +194,7 @@ label {
   font-family: "Figtree", sans-serif;
   font-size: 0.9rem;
   background-color: var(--secondary-bg);
+  color:black;
 }
 
 #send {
@@ -497,18 +498,21 @@ input[type="range"] {
   color: #888;
 }
 
+.control-row button {
+  padding:10px;
+}
+
 button {
-  padding: 0.75rem 1.5rem;
+  /* padding: 0.75rem 1.5rem; */
   border: none;
   border-radius: var(--border-radius);
   background-color: var(--button-bg);
   color: white;
   font-family: "Figtree", sans-serif;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-width: 80px;
   box-shadow: var(--shadow);
 }
 
@@ -572,6 +576,59 @@ select:focus {
   align-items: center;
   justify-content: space-between;
 }
+
+#modal-ok {
+  padding: 10px;
+}
+
+
+#modal-ng {
+  padding: 10px;
+  background-color: #1a1a1a;
+  color: white;
+}
+
+#toast {
+  display: none;
+  
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-content: flex-end;
+  align-items: center;
+  justify-content: space-evenly;
+
+  gap: 0.1rem;
+  width: 60%;
+  /* min-height: 250px; */
+  position: fixed;
+  margin:0px auto;
+  height:10%;
+  bottom:-1px;
+  left:20%;
+
+
+
+  background-color: white;
+  border: 2px solid #af8000;
+  box-shadow: 0px 0px 40px 20px #daa520;
+  border-top-left-radius: 15px;
+  border-top-right-radius: 15px;
+  z-index: 5;
+}
+
+#toast .flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width:100%;
+}
+
+#toast-close {
+  background-color: red;
+  width:40px;
+  height:40px;
+}
+
 
 #overlay {
   position: fixed;
@@ -851,16 +908,6 @@ select:focus {
   background-color: #f0f0f0;
 }
 
-#process-button {
-  margin-top: 15px;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
 #process-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -876,12 +923,14 @@ select:focus {
   flex-direction: column;
   align-items: center;
   gap: 1rem;
+  margin-bottom: 20px;
 }
 
 .jog-controls {
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 1rem;
   margin-top: 1rem;
 }
@@ -910,8 +959,8 @@ select:focus {
 #jog-distance {
   width: 100px;
   height: 200px;
-  writing-mode: bt-lr;
-  -webkit-appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
   margin: 0;
   background-color: var(--secondary-bg);
   border: 1px solid var(--border-color);
@@ -944,24 +993,10 @@ select:focus {
   background-color: #5a6268;
 }
 
-#jog-distance {
-  width: 100px;
-  height: 200px;
-  writing-mode: bt-lr;
-  -webkit-appearance: slider-vertical;
-  margin: 0;
-}
-
-#jog-distance-label {
-  writing-mode: vertical-lr;
-  transform: rotate(180deg);
-  margin: 0;
-  padding: 0.5rem;
-}
-
 .goldenrod-button {
   background-color: var(--button-bg);
   color: black;
+  padding: 0.75rem 1.5rem;
 }
 
 .goldenrod-button:hover {
@@ -1013,12 +1048,12 @@ select:focus {
 
 .settings-container {
   display: flex;
+  flex-direction: column;
   gap: 20px;
   width: 100%;
 }
 
 .settings-section {
-  flex: 1;
   padding: 20px;
   background-color: #ffffff;
   border: 1px solid var(--accent-color);
@@ -1026,18 +1061,51 @@ select:focus {
   color: #000000;
 }
 
-.settings-section p {
-  color: #000000;
-  margin: 0.5rem 0;
+.settings-row {
+  display: flex;
+  gap: 30px;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding: 0 10px;
 }
 
-.settings-section input {
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  max-width: calc(33.33% - 20px);
+}
+
+.setting-item label {
+  color: #000000;
+  font-size: 0.9em;
+  margin: 0;
+}
+
+.setting-item input {
   color: #000000;
   background-color: #ffffff;
+  padding: 8px;
+  border: 2px solid #666;
+  border-radius: 4px;
+  width: 100%;
+  font-size: 1em;
+  box-sizing: border-box;
+}
+
+.setting-item input:focus {
+  border-color: var(--button-bg);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(184, 134, 11, 0.2);
+}
+
+.setting-item input:hover {
+  border-color: #999;
 }
 
 .positions-section {
-  flex: 2;
   padding: 20px;
   background-color: #ffffff;
   border: 1px solid var(--accent-color);
@@ -1109,6 +1177,8 @@ select:focus {
   background-color: #ffffff;
   border: 1px solid var(--accent-color);
   border-radius: 8px;
+  display:flex;
+  justify-content: space-around;
 }
 
 .export-section {

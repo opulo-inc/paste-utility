@@ -23,7 +23,6 @@ export class VideoManager {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
-      
       selectElement.innerHTML = '';
       
       videoDevices.forEach(device => {
@@ -57,7 +56,7 @@ export class VideoManager {
 
       await new Promise((resolve) => {
         this.video.onloadedmetadata = () => {
-          // Set canvas dimensions to match video
+          // set canvas dimensions to match video
           this.canvas.width = this.video.videoWidth;
           this.canvas.height = this.video.videoHeight;
           resolve();
@@ -117,20 +116,14 @@ export class VideoManager {
   //also adds result of cv to this.cvFrame
   CVdetectCircle() {
     try {
-        // Clone frame to this.cvFrame
+        // clone frame to this.cvFrame
         this.cvFrame = this.frame.clone();
 
-        // Convert to grayscale
         let gray = new this.cv.Mat();
         this.cv.cvtColor(this.cvFrame, gray, this.cv.COLOR_RGBA2GRAY);
-        
-        // Apply Gaussian blur
         this.cv.GaussianBlur(gray, gray, new this.cv.Size(9, 9), 2, 2);
-        
-        // Create a Mat to store the circles
         let circles = new this.cv.Mat();
         
-        // Detect circles
         this.cv.HoughCircles(
             gray,
             circles,
@@ -138,25 +131,24 @@ export class VideoManager {
             1,
             gray.rows / 8,
             50,
-            50,
-            25,
-            100
+            30,
+            1,
+            50
         );
 
         let bestCircle = null;
         if (circles.cols > 0) {
-            // Get the first (highest-scoring) circle
+            // get best one
             const x = circles.data32F[0];
             const y = circles.data32F[1];
             const radius = circles.data32F[2];
             bestCircle = [x, y, radius];
 
-            // Draw the detected circle
+            // draw that bad boi
             this.cv.circle(this.cvFrame, new this.cv.Point(x, y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
             this.cv.circle(this.cvFrame, new this.cv.Point(x, y), radius, new this.cv.Scalar(255, 0, 0, 255), 3);
         }
 
-        // Clean up
         gray.delete();
         circles.delete();
 
@@ -259,10 +251,11 @@ export class VideoManager {
       this.dst = null;
     }
     
-    // Clear canvas
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     console.log('Video stopped and cleaned up');
   }
+
+ 
 }

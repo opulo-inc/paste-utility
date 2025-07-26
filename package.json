@@ -13,6 +13,8 @@
     "vite-plugin-node-polyfills": "^0.23.0"
   },
   "dependencies": {
-    "@tracespace/parser": "^5.0.0-alpha.0"
+    "@tracespace/parser": "^5.0.0-alpha.0",
+    "puppeteer": "^24.12.1",
+    "transformation-matrix": "^3.0.0"
   }
 }

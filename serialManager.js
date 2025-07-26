@@ -107,6 +107,8 @@ export class serialManager {
         //send boot commands
         this.send(this.bootCommands)
 
+        this.send(["M150 P255 R255 U255 B255"]);
+
         return true
     }
 
@@ -175,63 +177,63 @@ export class serialManager {
 
         if (this.port?.writable) {
         const writer = await this.port.writable.getWriter()
-        for (const element of commandArray) {
-            await writer.write(this.encoder.encode(element + "\n"))
+        try {
+            for (const element of commandArray) {
+                await writer.write(this.encoder.encode(element + "\n"))
 
-            this.setOkRespTimeout();
+                this.setOkRespTimeout();
 
-            this.appendToConsole(element, true);
+                this.appendToConsole(element, true);
 
-            // check that we got an ok back
-            this.clearBuffer()
+                // check that we got an ok back
+                this.clearBuffer()
 
-            while(true){
-                if(this.okRespTimeout) break;
+                while(true){
+                    if(this.okRespTimeout) break;
 
-                let firstElement = this.receiveBuffer.shift();
-                //console.log("first element: ",firstElement);
+                    let firstElement = this.receiveBuffer.shift();
 
-                //this.inspectBuffer.push(firstElement);
+                    if(firstElement == 'ok'){
+                        clearTimeout(this.timeoutID);
+                        break;
+                    }
 
-                if(firstElement == 'ok'){
-                    clearTimeout(this.timeoutID);
-                    break;
+                    if(firstElement = "echo:busy: processing"){
+                        //do something to extend timeout
+                        clearTimeout(this.timeoutID)
+                        this.setOkRespTimeout();
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 50)); // Small delay to avoid busy-waiting
+
                 }
 
-                if(firstElement = "echo:busy: processing"){
-                    //do something to extend timeout
-                    clearTimeout(this.timeoutID)
-                    this.setOkRespTimeout();
-                }
+                this.okRespTimeout = false;
 
-                await new Promise(resolve => setTimeout(resolve, 50)); // Small delay to avoid busy-waiting
+
+                // while(true){
+                //     console.log(this.okRespTimeout);
+                //     let resp = this.receiveBuffer;
+                //     for(const element of resp){
+                //         console.log(element)
+                //     }
+                //     console.log("printing response:");
+                //     console.log(resp);
+                //     console.log(resp[0])
+
+                //     if(this.okRespTimeout == true){
+                //         console.log("we're breaking because of timeout");
+                //         break;
+                //     }
+
+                // }
+
+                
 
             }
-
-            this.okRespTimeout = false;
-
-
-            // while(true){
-            //     console.log(this.okRespTimeout);
-            //     let resp = this.receiveBuffer;
-            //     for(const element of resp){
-            //         console.log(element)
-            //     }
-            //     console.log("printing response:");
-            //     console.log(resp);
-            //     console.log(resp[0])
-
-            //     if(this.okRespTimeout == true){
-            //         console.log("we're breaking because of timeout");
-            //         break;
-            //     }
-
-            // }
-
-            
-
+        } finally {
+            writer.releaseLock()
         }
-        writer.releaseLock()
         }
         else{
             this.modal.show("Cannot Write", "Cannot write to port. Have you connected?");
@@ -251,7 +253,8 @@ export class serialManager {
 
     }
 
-    // control
+
+    // TODO most of everything beneath here should move to lumen, not serial
 
     async leftAirOn(){
         const commandArray = [
@@ -711,11 +714,17 @@ export class serialManager {
         document.body.removeChild(element);
     }
 
-    goToRelative(x, y){
-        this.send([
+    async goToRelative(x, y){
+        await this.send([
             "G91",  // Set relative positioning
             `G0 X${x} Y${y}`,  // Move relative to current position
             "G90"   // Set absolute positioning
+          ]);
+    }
+
+    async goTo(x, y){
+        await this.send([
+            `G0 X${x} Y${y}`, 
           ]);
     }
   

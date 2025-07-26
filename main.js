@@ -1,17 +1,19 @@
 import './style.css'
 import { modalManager } from './modal.js'
+import { toastManager } from './toast.js'
 import { serialManager } from './serialManager.js';
-import { gerberManager } from './gerber.js';
 import { onOpenCVReady } from './opencv-bridge.js';
 import { VideoManager } from './video.js';
 import { Job } from './job.js';
 import { Lumen } from './lumen.js'
 
 let modal = new modalManager();
+let toast = new toastManager();
+
 let serial = new serialManager(modal);
 
 let lumen = new Lumen(serial);
-let currentJob = new Job(lumen);
+let currentJob = new Job(lumen, toast);
 
 onOpenCVReady(cv => {
   console.log("OpenCV loaded");
@@ -38,8 +40,6 @@ onOpenCVReady(cv => {
   const jobRetractionDeg = document.getElementById('jobRetractionDeg');
   const jobDwellMs = document.getElementById('jobDwellMs');
 
-  console.log('Job settings elements:', { jobDispenseDeg, jobRetractionDeg, jobDwellMs });
-
   if (jobDispenseDeg) {
     jobDispenseDeg.addEventListener('change', (e) => {
       console.log('Dispense degrees changed:', e.target.value);
@@ -61,16 +61,13 @@ onOpenCVReady(cv => {
     });
   }
 
-  // Import job functionality
+  // import job
   if (importJobButton && jobFileInput) {
-    console.log('Found import elements');
     importJobButton.addEventListener('click', () => {
-      console.log('Import button clicked');
       jobFileInput.click();
     });
 
     jobFileInput.addEventListener('change', async (event) => {
-      console.log('File selected');
       const file = event.target.files[0];
       if (file) {
         console.log('Reading file:', file.name);
@@ -90,11 +87,65 @@ onOpenCVReady(cv => {
     console.error('Import button or file input not found');
   }
 
-  // Export job functionality
+  // gerber import
+  const selectPasteGerberButton = document.getElementById('selectPasteGerber');
+  const selectMaskGerberButton = document.getElementById('selectMaskGerber');
+  const loadGerbersButton = document.getElementById('loadGerbers');
+  const pasteGerberFileInput = document.getElementById('pasteGerberFile');
+  const maskGerberFileInput = document.getElementById('maskGerberFile');
+  const pasteGerberFilename = document.getElementById('pasteGerberFilename');
+  const maskGerberFilename = document.getElementById('maskGerberFilename');
+
+  if (selectPasteGerberButton && pasteGerberFileInput) {
+    selectPasteGerberButton.addEventListener('click', () => {
+      pasteGerberFileInput.click();
+    });
+
+    pasteGerberFileInput.addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        pasteGerberFilename.textContent = file.name;
+      } else {
+        pasteGerberFilename.textContent = '';
+      }
+    });
+  }
+
+  if (selectMaskGerberButton && maskGerberFileInput) {
+    selectMaskGerberButton.addEventListener('click', () => {
+      maskGerberFileInput.click();
+    });
+
+    maskGerberFileInput.addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        maskGerberFilename.textContent = file.name;
+      } else {
+        maskGerberFilename.textContent = '';
+      }
+    });
+  }
+
+  if (loadGerbersButton) {
+    loadGerbersButton.addEventListener('click', async () => {
+      if (!pasteGerberFileInput.files[0] || !maskGerberFileInput.files[0]) {
+        alert('Please select both paste and mask gerber files first');
+        return;
+      }
+      try {
+        await currentJob.loadJobFromGerbers();
+      } catch (error) {
+        console.error('Error loading gerbers:', error);
+        alert('Error loading gerber files: ' + error.message);
+      }
+    });
+  }
+
+  // export job
   if (exportJobButton) {
     exportJobButton.addEventListener('click', async () => {
       try {
-        // Ensure we have the latest values from the UI
+        // ensure we have the latest values from the UI
         if (jobDispenseDeg) currentJob.dispenseDegrees = Number(jobDispenseDeg.value);
         if (jobRetractionDeg) currentJob.retractionDegrees = Number(jobRetractionDeg.value);
         if (jobDwellMs) currentJob.dwellMilliseconds = Number(jobDwellMs.value);
@@ -114,25 +165,22 @@ onOpenCVReady(cv => {
   canvas.addEventListener('click', (event) => {
 
     const rect = canvas.getBoundingClientRect();
-    console.log(rect)
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    console.log(x, y)
 
-
-    // Calculate scaling factors
+    // calculate scale
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
   
-    // Scale the click coordinates to match the actual video dimensions
+    // scale the click coordinates to match the video
     const scaledX = x * scaleX;
     const scaledY = y * scaleY;
   
-    // Calculate center of canvas
+    // calculate center of canvas
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
   
-    // Calculate offset from center
+    // calculate offset from center
     const offsetX = scaledX - centerX;
     const offsetY = -(scaledY - centerY); 
   
@@ -150,14 +198,11 @@ onOpenCVReady(cv => {
     
     try {
       if (!isCameraRunning) {
-        // Connect to serial port
         await serial.connect();
-        
-        // Start camera
         await videoManager.startVideo(cameraSelect.value, canvas);
         isCameraRunning = true;
         
-        // Update button state and disable it
+        // update button
         connectButton.textContent = 'Connected';
         connectButton.classList.add('connected');
         connectButton.disabled = true;
@@ -171,6 +216,25 @@ onOpenCVReady(cv => {
     if (isCameraRunning) {
       lumen.jogToFiducial();
     }
+  });
+
+  document.getElementById("homing-fid-button").addEventListener('click', async () => {
+    //TODO should make this editable somehow, not gonna be teh same for everyone
+    await lumen.serial.goTo(218, 196);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    await lumen.jogToFiducial();
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await lumen.jogToFiducial();
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    lumen.serial.send(["G92 X218 Y196"])
+    
+  });
+
+  document.getElementById("nozzleOffsetCal").addEventListener('click', async () => {
+    await currentJob.performTipCalibration();
+    
   });
 
 
@@ -277,6 +341,21 @@ document.getElementById("jog-zm").addEventListener("click", () => {
   serial.send(["G91", `G0 Z-${dist}`, "G90"]);
 });
 
+// Extrude and Retract B motor
+const extrudeBtn = document.getElementById('extrude-btn');
+const retractBtn = document.getElementById('retract-btn');
+
+if (extrudeBtn) {
+  extrudeBtn.addEventListener('click', () => {
+    serial.send(["G91", "G0 B-2", "G90"]); 
+  });
+}
+if (retractBtn) {
+  retractBtn.addEventListener('click', () => {
+    serial.send(["G91", "G0 B2", "G90"]);
+  });
+}
+
 // Air control
 document.getElementById("left-air-on").addEventListener("click", () => {
   serial.send(["M106", "M106 P1 S255"]);
@@ -318,10 +397,34 @@ document.getElementById("home-z").addEventListener("click", () => {
   serial.send(["G28 Z"]);
 });
 
-document.getElementById('capturePosition').addEventListener('click', async () => {
-    try {
-        await currentJob.capturePosition();
-    } catch (error) {
-        console.error('Error during capture:', error);
-    }
+document.getElementById('getRoughBoardPosition').addEventListener('click', async () => {
+  try {
+      await currentJob.findBoardRoughPosition();
+  } catch (error) {
+      console.error('Error during capture:', error);
+  }
+});
+
+document.getElementById('runJob').addEventListener('click', async () => {
+  try {
+      await currentJob.run();
+  } catch (error) {
+      console.error('Error during run:', error);
+  }
+});
+
+document.getElementById('performFidCal').addEventListener('click', async () => {
+  try {
+    await currentJob.performFiducialCalibration();
+  } catch (error) {
+    console.error('Error during fid cal:', error);
+  }
+});
+
+document.getElementById('captureNewPos').addEventListener('click', async () => {
+  try {
+    await currentJob.captureNewPosition();
+  } catch (error) {
+    console.error('Error during pos capture:', error);
+  }
 });
