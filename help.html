@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap');
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./assets/lumen-icon-DAD-y5BF.png">
+  <link rel="shortcut icon" type="image/x-icon" href="./assets/lumen-icon-DAD-y5BF.png">
+  
+  <script src="opencv.js"></script>
+  
+  <title>LumenPnP Pasting Utility</title>
+  <script type="module" crossorigin src="./assets/main-0Nhhwlc4.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/main-BB0sy9qS.css">
+</head>
+
+<body>
+  <div id="header-pill">
+    <h1>LumenPnP Pasting Utility - Instructions</h1>
+  </div>
+
+  <div id="main-app">
+    <div id="leftColumn">
+
+    <h2>Introduction</h2>
+    <p>This utility is designed to support automatic paste dispensing jobs on the LumenPnP with the Paste Extruder Toolhead. It supports running jobs based on a Gerber export from your ECAD software, or by manually capturing positions with the toolhead for other applications. Gerber-based jobs can even facilitate machine vision based fiducial calibration. Jobs can be saved and re-imported later, with all calibration data included. To use this utility, you will need:</p>
+    <ul>
+      <li><a href="https://www.opulo.io/products/lumenpnp">A LumenPnP</a></li>
+      <li><a href="https://www.opulo.io/products/paste-extruder">A Paste Extruder Toolhead</a></li>
+      <li>The paste you'd like to dispense (we strongly recommend <a href="https://www.digikey.com/en/products/detail/harimatec-inc/2370856/12570370">Loctite GC 50</a> for solder paste applications)</li>
+      <li>An appropriately sized luer lock tip (we recommend <a href="https://www.mcmaster.com/75165A125/">a 22 gauge tip</a> for most PCB applications)</li>
+      <li>The PCB (or other substrate) you'd like to apply paste to, attached to the LumenPnP's staging plates</li>
+      <li>If loading a PCB job:
+        <ul>
+          <li>The Paste and Mask layer gerber files for the side of the PCB you'd like to paste. This has been tested with KiCAD exports only thus far.</li>
+          <li>The PCB has three, 1mm diameter fiducials.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h2>Connecting to the LumenPnP</h2>
+    <ol>
+      <li>Make sure your LumenPnP is connected to your computer via the top camera cable, and the USB data cable from the motherboard.</li>
+      <li>Go to paste.opulo.io</li>
+      <li>From the drop-down in the top right, select the Top Camera and click "Connect". If you don't see the top camera, reconnect the camera and then reload the page.</li>
+      <li>Select the LumenPnP serial port in the pop up window and click "Connect".</li>
+      <li>You should now see the camera feed in the UI. </li>
+      <li>With the Z gantries level, click the Home X, Home Y, and Home Z buttons.</li>
+      <li>Try jogging the machine around using the jog buttons and distance slider.</li>
+      <li>There are a few special functions in the control panel to the right:
+        <ul>
+          <li>"Jog to Fid in View" will find a fiducial in the camera feed and jog to it. This can be handy for quickly centering the camera reticle on a fiducial.</li>
+          <li>"Visual Home" will jog the camera to the datum board, find the homing fiducial, and reset the machine's position based on this. This should be done at the beginning of every boot to ensure all job positions are still valid.</li>
+          <li>"Nozzle Offset Cal" will set the offset from the camera view centerpoint to the tip of the paste extruder. This should be done when setting up a job, and it's saved in the job file.</li>
+          <li>Clicking on a location in the camera feed will jog the machine to that position. This is a quick way to move the machine around and center the view on a certain feature.</li>
+        </ul>
+      </li>
+    </ol>
+    
+    <h2>Job Setup from Gerbers</h2>
+    <ol>
+      <li>Click the "Select Paste Gerber" button, and select the paste layer gerber file from your computer.</li>
+      <li>Click the "Select Mask Gerber" button, and select the mask layer gerber file from your computer.</li>
+      <li>To load the gerbers, click the "Load Gerbers" button.</li>
+      <li>The box below will populate with positions from your gerbers. The red dots are locations in your paste layer. The blue dots are potential fiducial locations.</li>
+      <li>The instructions at the bottom of the page instruct you to click on FID1. In the box, click on the blue dot that is in the same location as FID1 on your PCB. The dot should turn into a green square.</li>
+      <li>Perform the same step for FID2 and FID3 as instructed.</li>
+      <li>The Job Positions section will populate with all the positions and fiducials in your PCB.</li>
+      <li>Click the "Get Rough Board Position" button. This process will tell the tool approximately where your board is in the machine.</li>
+      <li>As instructed by the panel at the bottom, jog the machine so that the gold cross in the camera view is centered on FID1. The "Jog to Fid in View" button can help center the camera on the fiducial once it's in the camera view. Then click the button in the instruction panel.</li>
+      <li>Perform the same step for FID2 and FID3.</li>
+      <li>As instructed by the panel, jog the paste extruder nozzle tip so that it's just barely touching the top surface of the PCB. Click the button in the panel to continue.</li>
+      <li>The positions in the Job Positions list are now updated to have positions based on your positioning. Try clicking on the circle icon in each entry to jog the machine to that position. If you picked the fiducial positions very accurately, the center of the camera should perfectly line up with the center of the pads on your PCB.</li>
+      <li>Try clicking on the "Perform Fiducial Cal" button. This will jog to the rough positions of the fiducials you chose previously and find their accurate position using machine vision. This is useful when running a job many times and quickly re-aligning a new board. If this fails, you can just precisely choose the fiducial position with the "Get Rough Board Position" button, can skip the fiducial calibration.</li>
+      <li>Click the "Nozzle Offset Cal" button beneath the camera view.</li>
+      <li>As instructed, jog the camera to be centered on any fiducial on the machine, and click continue.</li>
+      <li>The machine will move the nozzle tip close to the fiducial you chose. Jog the nozzle so that it is perfectly touching and centered on the fiducial.</li>
+      <li>Adjust the settings at the bottom of the page.
+        <ul>
+          <li>Dispense Degrees: The number of degrees the paste extrusion stepper motor spins to push paste out of the syringe per position.</li>
+          <li>Retraction Degrees: The number of degrees the paste extrusion stepper motor spins to retract after dispensing.</li>
+          <li>Dwell Milliseconds: The amount of time the nozzle waits on the substrate after dispensing and retracting.</li>
+        </ul>
+      </li>
+    </ol>
+
+    <h2>Job Setup from Captured Positions</h2>
+    <ol>
+      <li>Jog the nozzle tip to the first location you'd like to dispense paste.</li>
+      <li>Click the "Capture New Position" button, and a new position will appear in the list.</li>
+      <li>Repeat until you've captured all positions you'd like to dispense paste.</li>
+      <li>Do NOT click the "Nozzle Offset Cal" button beneath the camera view. Captured positions do not require an offset because they are captured with the nozzle tip and not the camera.</li>
+    </ol>
+
+    <h2>Import/Export</h2>
+
+    After you've completed all the steps in either the Gerber setup or Captured Positions setup, you can export your job to be run later. Simply click the "Export Job" button at the bottom of the page and save the file on your computer. In a new session, just click the "Import Job" button at the top of the page to load your job back in. The job is just a JSON file, so it's easy to edit manually if you'd like to make your own adjustments.
+  
+    <h2>Running a Job</h2>
+
+
+    With a job loaded, you're set to run a job. Before actually clicking the "Run Job" button at the bottom of the page, extrude a bit using the jog button to prime the extruder. Otherwise, it will take a while for paste to start dispensing.
+    
+    While running, the utility will then dispense paste at every position in the job according to the settings and alignment in the job. At any time, you can click the button in the instruction panel to stop a job part-way though.
+
+    </div>
+  </div>
+
+  <div id="footer"><img src="./assets/opulo-gold-alpha-tiny-NQ2rZ33T.png"></div>
+
+  <div id="modal">
+    <div class="flex">
+      <img src="./assets/lumen-icon-DAD-y5BF.png">
+      <button id="modal-close" class="btn-close">⨉</button>
+    </div>
+
+    <h2 id="modal-title">test</h2>
+    <p id="modal-content">test</p>
+    <input id="modal-num-input" min="1" max="254" type="number">
+    <div class="flex">
+      <button id="modal-ng">Cancel</button>
+      <button id="modal-ok">OK</button>
+    </div>
+  </div>
+
+  <div id="toast">
+    <p id="toast-content">test</p>
+    <button id="toast-close" class="btn-close">➡️</button>
+  </div>
+
+  <div id="overlay"></div>
+</body>
+
+</html>
