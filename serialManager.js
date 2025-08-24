@@ -81,8 +81,8 @@ export class serialManager {
             return false
         }
 
-        const usbVendorId = 0x0483;
-        this.port = await navigator.serial.requestPort({ filters: [{ usbVendorId }] })    
+        const usbVendorId = [{usbVendorId: 0x0483},{usbVendorId: 0x2c99}];
+        this.port = await navigator.serial.requestPort({ filters:  usbVendorId  })  
         console.log("Port Selected.")
 
         await this.port.open({
@@ -104,10 +104,30 @@ export class serialManager {
         document.querySelector("#connect").style.color = 'white';
         document.querySelector("#connect").innerHTML = 'Connected'; 
 
-        //send boot commands
-        this.send(this.bootCommands)
+        
+         while(true){
+            if(this.okRespTimeout) break;
 
-        this.send(["M150 P255 R255 U255 B255"]);
+            let firstElement = this.receiveBuffer.shift();
+            console.log(firstElement);
+                if(firstElement == 'Error:volume.init failed'){
+                        clearTimeout(this.timeoutID);
+                        break;
+            }
+
+                    if(firstElement = "echo:busy: processing"){
+                        //do something to extend timeout
+                        clearTimeout(this.timeoutID)
+                        this.setOkRespTimeout();
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 50)); // Small delay to avoid busy-waiting
+
+                } 
+        //await this.delay(15000); //wait for marlin to process boot commands
+        //send boot commands
+        await this.send(this.bootCommands)
+        await this.send(["M150 P255 R255 U255 B255"]);
 
         return true
     }
@@ -176,7 +196,7 @@ export class serialManager {
         console.log("sending: ", commandArray);
 
         if (this.port?.writable) {
-        const writer = await this.port.writable.getWriter()
+        const writer = this.port.writable.getWriter();
         try {
             for (const element of commandArray) {
                 await writer.write(this.encoder.encode(element + "\n"))
@@ -192,7 +212,7 @@ export class serialManager {
                     if(this.okRespTimeout) break;
 
                     let firstElement = this.receiveBuffer.shift();
-
+                    console.log(firstElement);
                     if(firstElement == 'ok'){
                         clearTimeout(this.timeoutID);
                         break;

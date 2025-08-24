@@ -8,9 +8,17 @@ Designed to work with
 
 ## Running Locally
 
-With vite installed, run:
+With vite installed:
+
+`npm install -D vite`
+
+run:
 
 `npm run dev`
+
+debug:
+
+`npm run dev -- --logLevel info`
 
 ## License
 

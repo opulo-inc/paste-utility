@@ -194,8 +194,7 @@ onOpenCVReady(cv => {
   });
   
   document.getElementById("connect").addEventListener("click", async () => {
-    const connectButton = document.getElementById("connect");
-    
+    const connectButton = document.getElementById("connect"); 
     try {
       if (!isCameraRunning) {
         await serial.connect();
