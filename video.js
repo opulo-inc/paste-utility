@@ -22,8 +22,7 @@ export class VideoManager {
   async populateCameraList(selectElement) {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === "videoinput");
-      console.log(videoDevices);
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
       selectElement.innerHTML = '';
       
       videoDevices.forEach(device => {
