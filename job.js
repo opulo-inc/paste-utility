@@ -780,7 +780,7 @@ export class Job {
             currentB = retractionAbsPos;
         }
 
-        commands.push("G0 X250 Y400");
+        commands.push("G0 X5 Y5");
 
         return commands;
 
