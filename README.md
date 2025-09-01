@@ -5,6 +5,7 @@ The LumenPnP Paste Utility is a web tool for generating and sending paste dispen
 Designed to work with
 - [22 Gauge 1/4" needle Luer Lock tips](https://www.mcmaster.com/75165A125/)
 - PCBs with at least three 1mm diameter circular fiducials
+- small camera mounted on the side of the solder paste extruder -- I used a Teslong NTE100
 
 ## Running Locally
 
