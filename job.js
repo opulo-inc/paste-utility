@@ -32,8 +32,9 @@ class Point {
 }
 
 class Fiducial extends Point {
-    constructor(x, y, z, searchX, searchY) {
+    constructor(n,x, y, z, searchX, searchY) {
         super(x, y, z)
+        this.n = n; // fiducial number
         this.searchX = searchX;
         this.searchY = searchY;
     }
@@ -45,6 +46,7 @@ export class Job {
 
         this.placements = [];
         this.fiducials = [];
+        this.autoFiducials =[];
 
         this.dispenseDegrees = 30;
         this.retractionDegrees = 1;  
@@ -126,6 +128,22 @@ export class Job {
             ctx.fill();
             
         }
+        // Draw auto fid points with a  green circle around them
+        ctx.fillStyle = "green";
+        for (let point of this.autoFiducials) {
+            
+            const newX = (point.x + xShift) * vizScale;
+            const newY = (point.y + yShift) * vizScale;
+
+            point.canvasX = newX;
+            point.canvasY = newY;
+
+            ctx.beginPath();
+            ctx.arc(newX, this.jobCanvas.height - newY, 5, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            
+        }
 
         // Draw paste points in red
         ctx.fillStyle = "red";
@@ -182,9 +200,12 @@ export class Job {
       
         let positions = [];
         let minX, minY, maxX, maxY;
+        let fiducialNext = false;
+        let fiducialNumber = 0;
       
         // iterate through the syntax tree children and save the x and y values for elements of type 'graphic'
         for (const child of syntaxTree.children) {
+          
           if (child.type === 'graphic' && child.graphic === 'shape') {
             positions.push({
                 x: child.coordinates.x/1000000,
@@ -203,8 +224,26 @@ export class Job {
             if (maxY === undefined || child.coordinates.y/1000000 > maxY) {
               maxY = child.coordinates.y/1000000;
             }
-          }
+            if (fiducialNext == true ) {
+            const newPoint = new Fiducial(fiducialNumber,child.coordinates.x/1000000, child.coordinates.y/1000000, 31.5,0,0);
+            this.autoFiducials.push(newPoint); 
+            console.log("Fiducial n: x: y:", this.autoFiducials);
+            fiducialNext = false;
+            }   
         }
+          else if (child.type === 'comment') {
+            if (child.comment && child.comment.startsWith('#@! TO.C,FI')) {
+            console.log("Matched comment:", child.comment);
+            const match = child.comment.match(/^#@! TO\.C,FI(\d+)/);
+        if (match) {
+            fiducialNumber = parseInt(match[1], 10);
+            console.log("Fiducial:", fiducialNumber);
+            fiducialNext = true;
+        // You can use 'number' as needed
+        }}
+
+        }
+    }
       
         console.log(positions);
 
@@ -251,6 +290,7 @@ export class Job {
         for(const maskData of onlyInMask){
             const newPoint = new Point(maskData.x, maskData.y, 31.5);
             this.fiducials.push(newPoint);
+            
         }
 
 
@@ -293,8 +333,25 @@ export class Job {
             }
         }
 
-        console.log("setting event listener");
+       
+        if(this.autoFiducials.length === 3){
+            let fid1_object, fid2_object, fid3_object;
+            // Auto-select the three fiducials 
+            console.log(" Numer of fiducials found: ", this.autoFiducials.length)
+        for(const fiducial of this.autoFiducials){
+            console.log("fiducials num: ", fiducial.n)
+            console.log("fiducial: ", fiducial)
+            if (fiducial.n === 1) {  fid1_object = new Point(fiducial.x, fiducial.y, 31.5);
+            }else if (fiducial.n === 2) {  fid2_object = new Point(fiducial.x, fiducial.y, 31.5);
+            }else if (fiducial.n === 3) {  fid3_object = new Point(fiducial.x, fiducial.y, 31.5);
+            } else {
+                console.error("Error: Fiducial without a number found during auto-selection.");
+        }
+    }
+        this.fiducials = [fid1_object, fid2_object, fid3_object];
+        }else {
 
+         console.log("setting event listener");
         this.jobCanvas.addEventListener("click", sendClickToToast.bind(this));
 
         // show the first toast asking them to click
@@ -308,10 +365,10 @@ export class Job {
 
         // cancel event listener for fid selection
         this.jobCanvas.removeEventListener('click', sendClickToToast)
-
+        
         // delete all fids from this.fiducials other than the ones we just got
         this.fiducials = [fid1_object, fid2_object, fid3_object];
-
+        }
         console.log("fiducials: ", this.fiducials)
         console.log("placements: ", this.placements)
 
