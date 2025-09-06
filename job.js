@@ -836,7 +836,9 @@ export class Job {
             }
             if(this.toast.toastObject.style.display == "none"){
                 await this.lumen.serial.send(["G0 Z31.5"]);
-                await this.lumen.serial.send(["G0 X0 Y0"]);// Outside Prusa area "G0 X250 Y400"]
+
+                await this.lumen.serial.send(["G0 X5 Y5"]);
+              
                 return;
             }
 
