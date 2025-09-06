@@ -218,7 +218,7 @@ onOpenCVReady(cv => {
   });
 
   document.getElementById("homing-fid-button").addEventListener('click', async () => {
-    //TODO should make this editable somehow, not gonna be teh same for everyone
+    //TODO should make this editable somehow, not gonna be exactly same for everyone
     await lumen.serial.goTo(218, 196);
     await new Promise(resolve => setTimeout(resolve, 1000));
     
@@ -346,12 +346,12 @@ const retractBtn = document.getElementById('retract-btn');
 
 if (extrudeBtn) {
   extrudeBtn.addEventListener('click', () => {
-    serial.send(["G91", "G0 B-2", "G90"]); 
+    serial.send(["G91", "G0 E-2", "G90"]); 
   });
 }
 if (retractBtn) {
   retractBtn.addEventListener('click', () => {
-    serial.send(["G91", "G0 B2", "G90"]);
+    serial.send(["G91", "G0 E2", "G90"]);
   });
 }
 

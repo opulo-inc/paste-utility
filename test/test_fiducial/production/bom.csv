@@ -1,0 +1,7 @@
+﻿Designator,Footprint,Quantity,Value,LCSC Part #
+B1,Uno_R3_Shield_NoLabels,1,Arduino_Uno_R3_Shield,
+R1,0805,1,R,
+"R2, R4",0805,2,R_45deg,
+R3,0603,1,R,
+R5,0402,1,R,
+R6,0201,1,R_45deg,

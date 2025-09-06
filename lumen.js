@@ -16,32 +16,32 @@ export class Lumen {
         console.log("grabbing board position");
         this.serial.clearInspectBuffer();
 
-        await this.serial.send(["G92"])
-
-        console.log("sent G92");
-
-        const pattern = /X:(.*?) Y:(.*?) Z:(.*?) A:(.*?) B:(.*?) /
-
-        const re = new RegExp(pattern, 'i');
+        //await this.serial.send(["G92"])// set current position to 0,0,0
+        //console.log("sent G92");
+        await this.serial.send(["M114"])// get current position
+        console.log("sent M114");
+        //const pattern = /X:(.*?) Y:(.*?) Z:(.*?) A:(.*?) B:(.*?) /
+        const pattern = /X:([\d.+-]+)\s+Y:([\d.+-]+)\s+Z:([\d.+-]+)\s+E:([\d.+-]+)/i;
+        //const re = new RegExp(pattern, 'i');
 
         console.log("serial inspect buffer: ", this.serial.inspectBuffer)
 
         let positionArray = [];
 
-        for (var i=0; i < this.serial.inspectBuffer.length; i++) {
+  
 
-            let currLine = this.serial.inspectBuffer[i];
+            let currLine = this.serial.inspectBuffer[0];
             console.log(currLine);
+            //let result = pattern.exec(currLine);
+            //let result = re.test(currLine);
+
             
-            let result = re.test(currLine);
-
-            if(result){
-                const matches = re.exec(currLine)
-
-                positionArray = [matches[1], matches[2], matches[3]];
-                break;
-            }
-        }
+            const matches = pattern.exec(currLine)
+            console.log("matches: ", matches);
+            positionArray = [matches[1], matches[2], matches[3]];
+             
+            
+        
 
         console.log("positionArray: ", positionArray);
 

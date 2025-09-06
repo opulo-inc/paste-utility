@@ -51,6 +51,10 @@ export class Job {
         this.dwellMilliseconds = 100;  
         this.lumen = lumen;
         this.toast = toast;
+        this.vizScale = 0;
+        this.xShift = 0;
+        this.yShift = 0;
+       
 
         this.jobCanvas = document.getElementById('pointViz');
 
@@ -140,7 +144,23 @@ export class Job {
             ctx.arc(newX, this.jobCanvas.height - newY, 2, 0, Math.PI * 2);
             ctx.fill();
         }
+        this.vizScale = vizScale;
+        this.xShift = xShift;
+        this.yShift = yShift;
+       
         
+    }
+    drawCurrentPositionOnCanvas(x, y){
+        const ctx = this.jobCanvas.getContext("2d");
+        
+        const newX = (x + this.xShift) * this.vizScale;
+        const newY = (y + this.yShift) * this.vizScale;
+
+
+        ctx.fillStyle = "green";
+        ctx.beginPath();
+        ctx.arc(newX, this.jobCanvas.height - newY, 5, 0, Math.PI * 2);
+        ctx.stroke();
     }
 
     // returns the closest point object to a click coordinate on the canvas
@@ -771,8 +791,8 @@ export class Job {
             commands.push(
             `G0 X${x + this.lumen.tipXoffset} Y${y + this.lumen.tipYoffset}`,                 // Move over
             `G0 Z${point.z}`,                       // Move z down
-            `G0 B${dispenseAbsPos}`,          // Extrude paste
-            `G0 B${retractionAbsPos}`,        // Retract a small amount
+            `G0 E${dispenseAbsPos}`,          // Extrude paste on Prusa is E
+            `G0 E${retractionAbsPos}`,        // Retract a small amount
             `G4 P${dwellMs}`,                 // Dwell and wait for paste to actually extrude
             "G0 Z31.5",                       // Move safe z
             );
@@ -792,14 +812,31 @@ export class Job {
         let commands = this.slice()
 
         this.toast.show("Running job. Close this to cancel.");
-
+        
         for(const command of commands){
 
             console.log(this.toast.receivedInput)
 
+            console.log("command: ", command);
+            const pattern = /G0\s+X([\d.+-]+)\s+Y([\d.+-]+)/;
+            try {
+            const matches = pattern.exec(command);
+            console.log("matches: ", matches);
+            if (matches) {
+            let x= matches[1];
+            let y= matches[2];
+            
+            
+            console.log("x: ", x);
+            console.log("y: ", y) ;   
+            this.drawCurrentPositionOnCanvas(x, y)
+            }
+            } catch (error) {
+            console.error("Error parsing command: ", error);
+            }
             if(this.toast.toastObject.style.display == "none"){
                 await this.lumen.serial.send(["G0 Z31.5"]);
-                await this.lumen.serial.send(["G0 X250 Y400"]);
+                await this.lumen.serial.send(["G0 X0 Y0"]);// Outside Prusa area "G0 X250 Y400"]
                 return;
             }
 
@@ -854,11 +891,11 @@ export class Job {
         ]
 
         const matrix = fromTriangles(origFids, realFids);
-        
+        console.log(matrix);
         for (let point of this.placements) {
-            
+            console.log("point:",point);
             let transformedPoint = applyToPoint(matrix, [point.x, point.y])
-
+            console.log(transformedPoint);
             point.calX = transformedPoint[0];            
             point.calY = transformedPoint[1];
             

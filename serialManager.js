@@ -73,7 +73,7 @@ export class serialManager {
         return new Promise(resolve => setTimeout(resolve, delayInms));
     };
     
-    
+   
 
     async connect() {
         if (!navigator.serial){
@@ -81,7 +81,7 @@ export class serialManager {
             return false
         }
 
-        const usbVendorId = [{usbVendorId: 0x0483},{usbVendorId: 0x2c99}];
+        const usbVendorId = [{usbVendorId: 0x0483},{usbVendorId: 0x2c99},{usbVendorId: 0x2341}];// 0x2341 is arduino, 0x0483 is stm32 , 0x2c99 is Lumen
         this.port = await navigator.serial.requestPort({ filters:  usbVendorId  })  
         console.log("Port Selected.")
 
@@ -97,37 +97,36 @@ export class serialManager {
         console.log("Port Opened.")
         // const { clearToSend, dataCarrierDetect, dataSetReady, ringIndicator} = await this.port.getSignals()
         // console.log({ clearToSend, dataCarrierDetect, dataSetReady, ringIndicator})
+        await this.delay(5000); //wait for marlin to process boot commands
         this.listen()
+        
+        while(true)
+        {   console.log(this.inspectBuffer.length);
+            console.log(this.inspectBuffer.toString());
+            if(this.inspectBuffer.length == 0){
+                break;
+            }
+            this.clearInspectBuffer();
+            await this.delay(1000);
+        }
 
+        console.log("Port Readable.")
 
         document.querySelector("#connect").style.background = 'green';
         document.querySelector("#connect").style.color = 'white';
         document.querySelector("#connect").innerHTML = 'Connected'; 
 
+     
+        // Wait for the serial device to stop transmitting
         
-         while(true){
-            if(this.okRespTimeout) break;
-
-            let firstElement = this.receiveBuffer.shift();
-            console.log(firstElement);
-                if(firstElement == 'Error:volume.init failed'){
-                        clearTimeout(this.timeoutID);
-                        break;
-            }
-
-                    if(firstElement = "echo:busy: processing"){
-                        //do something to extend timeout
-                        clearTimeout(this.timeoutID)
-                        this.setOkRespTimeout();
-                    }
-
-                    await new Promise(resolve => setTimeout(resolve, 50)); // Small delay to avoid busy-waiting
-
-                } 
-        //await this.delay(15000); //wait for marlin to process boot commands
+        //await this.delay(150000); //wait for marlin to process boot commands
         //send boot commands
-        await this.send(this.bootCommands)
-        await this.send(["M150 P255 R255 U255 B255"]);
+        //await this.send(this.bootCommands)
+        //await this.send(["M150 P255 R255 U255 B255"]);
+        await this.send(["M104 S190"]); //set extruder temp to 190 to prevent cold extrusion errors
+        await this.send(["G28 X Y Z"]); //home all axes
+        await this.send(["G0 Z31.5"]); //move z to safe height
+    
 
         return true
     }
@@ -182,16 +181,15 @@ export class serialManager {
         }
     }
 
-    async setOkRespTimeout(){
-        new Promise(resolve => {
-            this.timeoutID = setTimeout(() => {
-                console.log("timeout triggered");
-                this.okRespTimeout = true;
-                resolve();
-            }, 5000);
-        });
-    }
-
+async setOkRespTimeout() {
+  return new Promise(resolve => {
+    this.timeoutID = setTimeout(() => {
+      console.log("timeout triggered");
+      this.okRespTimeout = true;
+      resolve();
+    }, 50000);
+  });
+}
     async send(commandArray) {
         console.log("sending: ", commandArray);
 
@@ -212,7 +210,7 @@ export class serialManager {
                     if(this.okRespTimeout) break;
 
                     let firstElement = this.receiveBuffer.shift();
-                    console.log(firstElement);
+                    if (firstElement != undefined) console.log(firstElement);
                     if(firstElement == 'ok'){
                         clearTimeout(this.timeoutID);
                         break;
@@ -686,8 +684,8 @@ export class serialManager {
 
         this.clearBuffer();
         
-        await this.send(["M260 A109 B8 S1"]);
-        await this.send(["M261 A109 B1 S1"]);
+        await this.send(["M260 A109 B8 S1"]);// send I2C command
+        await this.send(["M261 A109 B1 S1"]);// request I2C command
         await this.delay(delayVal);
 
         console.log("current buffer length: ", this.receiveBuffer.length)
