@@ -1,7 +1,7 @@
 import { resolve } from 'path';
 
 export default {
-    base: './',
+    base: '/paste-utility/',
     optimizeDeps: { exclude: ["fsevents"] },
     publicDir: 'public',
     build: {
