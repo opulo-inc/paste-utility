@@ -295,18 +295,6 @@ export class Job {
         // filter out potential fid placements from mask
         maskPoints = maskPoints.filter(element => !pastePoints.includes(element));
 
-        // Filter out points that are in both paste and mask (these are paste points)
-        // Only keep points that are in mask but NOT in paste (these are fiducials)
-        /*
-        let onlyInMask = maskPoints.filter(maskPoint => {
-            return !pastePoints.some(pastePoint =>
-                Math.abs(pastePoint.x - maskPoint.x) < 0.001 &&
-                Math.abs(pastePoint.y - maskPoint.y) < 0.001
-            );
-        });
-
-        */
-
         let onlyInMask = [];
 
         for(const mask of maskPoints){
