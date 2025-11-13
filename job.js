@@ -47,8 +47,8 @@ export class Job {
         this.fiducials = [];
 
         this.dispenseDegrees = 30;
-        this.retractionDegrees = 1;  
-        this.dwellMilliseconds = 100;  
+        this.retractionDegrees = 1;
+        this.dwellMilliseconds = 100;
         this.lumen = lumen;
         this.toast = toast;
 
@@ -60,7 +60,7 @@ export class Job {
     // this does a few things
     // it takes all the points and fids in a job, and draws them on the canvas
     // it also saves all the drawn positions to the point and fid objects for easier click detection
-    // 
+    //
     drawJobToCanvas(){
 
 
@@ -98,23 +98,23 @@ export class Job {
 
         const width = maxX - minX;
         const height = maxY - minY;
-        
+
         // Calculate scale to fit the canvas while maintaining aspect ratio
         const scaleX = this.jobCanvas.width / width;
         const scaleY = this.jobCanvas.height / height;
         const vizScale = Math.min(scaleX, scaleY);
-        
+
         // Calculate shifts to center the points
         const xShift = -minX;
         const yShift = -minY;
-        
+
         // Clear canvas
-        ctx.clearRect(0, 0, this.jobCanvas.width, this.jobCanvas.height);        
-        
+        ctx.clearRect(0, 0, this.jobCanvas.width, this.jobCanvas.height);
+
         // Draw fid points in blue
         ctx.fillStyle = "blue";
         for (let point of this.fiducials) {
-            
+
             const newX = (point.x + xShift) * vizScale;
             const newY = (point.y + yShift) * vizScale;
 
@@ -124,7 +124,7 @@ export class Job {
             ctx.beginPath();
             ctx.arc(newX, this.jobCanvas.height - newY, 2, 0, Math.PI * 2);
             ctx.fill();
-            
+
         }
 
         // Draw paste points in red
@@ -140,7 +140,7 @@ export class Job {
             ctx.arc(newX, this.jobCanvas.height - newY, 2, 0, Math.PI * 2);
             ctx.fill();
         }
-        
+
     }
 
     // returns the closest point object to a click coordinate on the canvas
@@ -154,7 +154,7 @@ export class Job {
         for (const point of this.fiducials) {
             // console.log("checking against: ", point.canvasX, point.canvasY)
             const distance = Math.sqrt(
-                Math.pow(point.canvasX - clickX, 2) + 
+                Math.pow(point.canvasX - clickX, 2) +
                 Math.pow(point.canvasY - clickY, 2)
             );
             if (distance < threshold && distance < minDistance) {
@@ -177,35 +177,100 @@ export class Job {
         const gerberData = await fileInput.files[0].text();
 
         const syntaxTree = parse(gerberData)
-      
+
         console.log(syntaxTree)
-      
+
         let positions = [];
         let minX, minY, maxX, maxY;
-      
-        // iterate through the syntax tree children and save the x and y values for elements of type 'graphic'
+
+        // Divides by this factor to convert integer back to float digits
+        // 1000000 is the default (6 dec places)
+        let decimal_scalefactor = 1000000;
+        // Multiplies by this factor to convert units
+        // Defaults to 1 (mm)
+        let unit_scalefactor = 1;
+
+        let last_x = NaN;
+        let last_y = NaN;
+        // iterate through the syntax tree children looking for relevant items
+        // save the x and y values for elements of type 'graphic'
+        // set the unit conversion for elements of type 'units'
+        // set the decimal format for elements of type 'coordinateFormat'
         for (const child of syntaxTree.children) {
-          if (child.type === 'graphic' && child.graphic === 'shape') {
+          if (child.type == 'units'){
+            if (child.units){
+              if (child.units === "mm"){
+                unit_scalefactor = 1; // Redundant
+              }else if (child.units === "in"){
+                console.log("Converting from inches");
+                // Inches to mm
+                unit_scalefactor = 25.4;
+              }else{
+                console.error("Unknown unit format: ", child.units);
+              }
+            }
+          }else if (child.type === 'coordinateFormat'){
+            if (child.format){
+              let dec_count = child.format[1];
+              console.log("Got coordinate format command, decimal places: ", dec_count);
+              decimal_scalefactor = Math.pow(10, dec_count);
+            }else{
+              console.log("Invalid coordinate");
+            }
+            if (child.mode != "absolute"){
+              alert("Invalid Gerber coordinate format: " + child.mode + "\nTry re-exporting with absolute coordinates");
+            }
+          }else if (child.type === 'graphic' && child.graphic === 'shape') {
+            let shape_x = child.coordinates.x;
+            let shape_y = child.coordinates.y;
+
+            // Validate the X and Y coordinates and use the last valid reference coordinate
+            // if one isn't available.
+            if (Number.isNaN(shape_x) || shape_x === undefined){
+              if (!Number.isNaN(last_x)){
+                shape_x = last_x;
+              }else{
+                console.error("No reference X for this point: ", child);
+              }
+            }
+
+            if (Number.isNaN(shape_y) || shape_y === undefined){
+              if (!Number.isNaN(last_y)){
+                shape_y = last_y;
+              }else{
+                console.error("No reference Y for this point: ", child);
+              }
+            }
+
             positions.push({
-                x: child.coordinates.x/1000000,
-                y: child.coordinates.y/1000000
+                x: shape_x/decimal_scalefactor*unit_scalefactor,
+                y: shape_y/decimal_scalefactor*unit_scalefactor
             });
-      
-            if (minX === undefined || child.coordinates.x/1000000 < minX) {
-              minX = child.coordinates.x/1000000;
+
+            if (minX === undefined || child.coordinates.x/decimal_scalefactor*unit_scalefactor < minX) {
+              minX = child.coordinates.x/decimal_scalefactor*unit_scalefactor;
             }
-            if (minY === undefined || child.coordinates.y/1000000 < minY) {
-              minY = child.coordinates.y/1000000;
+            if (minY === undefined || child.coordinates.y/decimal_scalefactor*unit_scalefactor < minY) {
+              minY = child.coordinates.y/decimal_scalefactor*unit_scalefactor;
             }
-            if (maxX === undefined || child.coordinates.x/1000000 > maxX) {
-              maxX = child.coordinates.x/1000000;
+            if (maxX === undefined || child.coordinates.x/decimal_scalefactor*unit_scalefactor > maxX) {
+              maxX = child.coordinates.x/decimal_scalefactor*unit_scalefactor;
             }
-            if (maxY === undefined || child.coordinates.y/1000000 > maxY) {
-              maxY = child.coordinates.y/1000000;
+            if (maxY === undefined || child.coordinates.y/decimal_scalefactor*unit_scalefactor > maxY) {
+              maxY = child.coordinates.y/decimal_scalefactor*unit_scalefactor;
+            }
+
+            // Save the last valid X or Y coordinate (for Gerbers that rely on the last provided location)
+            if ( !(Number.isNaN(child.coordinates.x) || child.coordinates.x === undefined)){
+              last_x = child.coordinates.x;
+            }
+
+            if ( !(Number.isNaN(child.coordinates.y) || child.coordinates.y === undefined)){
+              last_y = child.coordinates.y;
             }
           }
         }
-      
+
         console.log(positions);
 
         return positions;
@@ -265,7 +330,7 @@ export class Job {
 
 
             const rect = this.jobCanvas.getBoundingClientRect();
-        
+
             const x = event.clientX - rect.left;
             const y = this.jobCanvas.height - (event.clientY - rect.top); // Flip Y coordinate
 
@@ -278,7 +343,7 @@ export class Job {
             // console.log("clicked coordinates: ", x, y)
 
             let closestClick = this.returnClosestFidFromClickCoordinates(x, y);
-            
+
             if (closestClick !== null){
                 this.toast.receivedInput = closestClick
                 console.log("her'es the point: ", this.toast.receivedInput)
@@ -286,7 +351,7 @@ export class Job {
                 const ctx = this.jobCanvas.getContext("2d");
                 ctx.fillStyle = "green";
                 ctx.fillRect(closestClick.canvasX - 4, this.jobCanvas.height - closestClick.canvasY - 4, 8, 8);
-                
+
             }
             else {
                 console.log("no matching click")
@@ -321,7 +386,7 @@ export class Job {
 
         this.drawJobToCanvas();
 
-        
+
 
     }
 
@@ -350,7 +415,7 @@ export class Job {
 
         // ask to jog tip directly touching top surface
         await this.toast.show("Please jog the paste extruder tip to just barely touch the board.");
-        
+
         // grab z pos and add .2 mm or something
         let zPos = await this.lumen.grabBoardPosition();
 
@@ -374,7 +439,7 @@ export class Job {
         console.log(this.placements);
 
         this.loadJobIntoPositionList()
-        
+
     }
 
     async performTipCalibration(){
@@ -415,13 +480,13 @@ export class Job {
             const fid = this.fiducials[i];
             console.log(`Processing fiducial ${i + 1}:`, fid)
             console.log("jogging to fid: ", fid.searchX, fid.searchY)
-            
+
             try {
-               
+
                 await this.lumen.serial.goTo(fid.searchX, fid.searchY);
                 await new Promise(resolve => setTimeout(resolve, 1500));
 
-        
+
                 await this.lumen.jogToFiducial();
                 await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -435,13 +500,13 @@ export class Job {
 
                 fid.calX = fidReal[0];
                 fid.calY = fidReal[1];
-                
+
             } catch (error) {
                 console.error(`Error processing fiducial ${i + 1}:`, error);
                 throw error;
             }
         }
-        
+
         console.log("All fiducials processed, transforming placements...");
         this.transformPlacements(fidActual);
 
@@ -518,7 +583,7 @@ export class Job {
 
         this.lumen.serial.clearInspectBuffer();
         console.log('Inspect buffer cleared');
-        
+
         await this.lumen.serial.send(["G92"]);
         console.log('G92 command sent');
 
@@ -530,7 +595,7 @@ export class Job {
         for (var i = 0; i < this.lumen.serial.inspectBuffer.length; i++) {
             let currLine = this.lumen.serial.inspectBuffer[i];
             console.log('Checking line:', currLine);
-            
+
             let result = re.test(currLine);
             console.log('Regex test result:', result);
 
@@ -545,7 +610,7 @@ export class Job {
                 console.log('Point added to job');
 
                 this.loadJobIntoPositionList();
-                return; 
+                return;
             }
         }
         console.log('No valid position found in inspect buffer');
@@ -567,7 +632,7 @@ export class Job {
             });
 
             const data = JSON.parse(jsonString);
-            
+
             this.placements = (data.placements || []).map(p => {
                 const point = new Point(p.x, p.y, p.z);
                 point.calX = p.calX;
@@ -601,7 +666,7 @@ export class Job {
             if (jobDispenseDeg) jobDispenseDeg.value = this.dispenseDegrees;
             if (jobRetractionDeg) jobRetractionDeg.value = this.retractionDegrees;
             if (jobDwellMs) jobDwellMs.value = this.dwellMilliseconds;
-            
+
             // Update the UI position list
             this.loadJobIntoPositionList();
 
@@ -618,7 +683,7 @@ export class Job {
     async saveToFile() {
         const jsonData = this.export();
         const blob = new Blob([jsonData], { type: 'application/json' });
-        
+
         const handle = await window.showSaveFilePicker({
             suggestedName: 'job.json',
             types: [{
@@ -628,7 +693,7 @@ export class Job {
                 }
             }]
         });
-        
+
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
@@ -653,7 +718,7 @@ export class Job {
             writtenX = position.x;
             writtenY = position.y;
         }
-        
+
         if(isFiducial){
             newDiv.innerHTML = `
             <span class="position-text">Fiducial: X:${writtenX} Y:${writtenY} Z:${position.z}</span>
@@ -673,8 +738,8 @@ export class Job {
         `;
         }
 
-        
-        
+
+
         // Add click handler for Move To button
         newDiv.querySelector('.move-btn').addEventListener('click', () => {
 
@@ -695,16 +760,16 @@ export class Job {
                 `G0 X${writtenX} Y${writtenY}`  // Move to position
             ]);
         });
-        
+
         // Add click handler for Remove button
         newDiv.querySelector('.remove-btn').addEventListener('click', () => {
             newDiv.remove();
 
-            this.placements = this.placements.filter(p => 
+            this.placements = this.placements.filter(p =>
                 p.x !== position.x || p.y !== position.y || p.z !== position.z
             );
 
-            this.fiducials = this.fiducials.filter(p => 
+            this.fiducials = this.fiducials.filter(p =>
                 p.x !== position.x || p.y !== position.y || p.z !== position.z
             );
 
@@ -713,7 +778,7 @@ export class Job {
 
             console.log(this.placements)
         });
-      
+
         positionsList.appendChild(newDiv);
     }
 
@@ -721,14 +786,14 @@ export class Job {
     // async capturePosition() {
 
     //     await this.capture();
-        
+
     //     const lastPoint = this.getPoint(this.getPointCount() - 1);
     //     console.log('Last captured point:', lastPoint);
-        
+
     //     if (lastPoint) {
-            
+
     //         this.createPositionElement([lastPoint.x, lastPoint.y, lastPoint.z]);
-    //     } 
+    //     }
     // }
 
     // generates array of commands to send
@@ -757,12 +822,12 @@ export class Job {
             const retractionAbsPos = dispenseAbsPos + retractionDeg;
 
             let x = point.x;
-            let y = point.y; 
+            let y = point.y;
 
             if(point.calX != null){
                 x = point.calX;
             }
-            
+
             if(point.calY != null){
                 y = point.calY;
             }
@@ -804,11 +869,11 @@ export class Job {
             }
 
             await this.lumen.serial.send([command]);
-        
+
         }
 
         this.toast.receivedInput = false;
-        
+
     }
 
 
@@ -854,16 +919,16 @@ export class Job {
         ]
 
         const matrix = fromTriangles(origFids, realFids);
-        
+
         for (let point of this.placements) {
-            
+
             let transformedPoint = applyToPoint(matrix, [point.x, point.y])
 
-            point.calX = transformedPoint[0];            
+            point.calX = transformedPoint[0];
             point.calY = transformedPoint[1];
-            
+
         }
 
     }
 
-} 
+}
