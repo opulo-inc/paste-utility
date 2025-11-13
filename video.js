@@ -139,16 +139,37 @@ export class VideoManager {
         let bestCircle = null;
         if (circles.cols > 0) {
             // get best one
-            const x = circles.data32F[0];
-            const y = circles.data32F[1];
-            const radius = circles.data32F[2];
-            bestCircle = [x, y, radius];
+            console.log(circles.cols);
+            for(let i = 0; i < circles.cols; i++){
+              const x = circles.data32F[i*3+0];
+              const y = circles.data32F[i*3+1];
+              const radius = circles.data32F[i*3+2];
+              if (bestCircle === null){
+                bestCircle = [x, y, radius];
+              }else{
+                // Choose circle closest to center
+                let center_x = this.cvFrame.cols/2;
+                let center_y = this.cvFrame.cols/2;
+                let dx = x-center_x;
+                let dy = y-center_y;
+                let dist = Math.sqrt(dx*dx+dy*dy);
 
-            // draw that bad boi
-            this.cv.circle(this.cvFrame, new this.cv.Point(x, y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
-            this.cv.circle(this.cvFrame, new this.cv.Point(x, y), radius, new this.cv.Scalar(255, 0, 0, 255), 3);
+                let old_dx = bestCircle[0]-center_x;
+                let old_dy = bestCircle[1]-center_y;
+                let old_dist = Math.sqrt(old_dx*old_dx+old_dy*old_dy);
+
+                if(dist < old_dist){
+                  bestCircle = [x, y, radius];
+                }
+              }
+              console.log("Circle %d, %d, rad %d", x, y, radius);
+              console.log(this.cvFrame.cols, this.cvFrame.rows);
+              // draw that bad boi
+              this.cv.circle(this.cvFrame, new this.cv.Point(x, y), 3, new this.cv.Scalar(0, 255, 0, 255), -1);
+              this.cv.circle(this.cvFrame, new this.cv.Point(x, y), radius, new this.cv.Scalar(255, 0, 0, 255), 3);
+            }
         }
-
+        console.log("Best circle: ", bestCircle);
         gray.delete();
         circles.delete();
 
