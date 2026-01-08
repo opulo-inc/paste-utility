@@ -15,8 +15,8 @@
   <script src="opencv.js"></script>
   
   <title>LumenPnP Pasting Utility</title>
-  <script type="module" crossorigin src="./assets/main-CfMFLonm.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/main-BB0sy9qS.css">
+  <script type="module" crossorigin src="./assets/main-C9NzYIDU.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/main-UA9tSrKV.css">
 </head>
 
 <body>
@@ -84,6 +84,24 @@
             <div class="setting-item">
               <label for="jobDwellMs">Dwell Milliseconds:</label>
               <input type="number" id="jobDwellMs" min="0" max="5000" value="100" />
+            </div>
+          </div>
+          <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
+            <div class="setting-item" style="flex: 1;">
+              <label for="jobPreGcode">Pre-gcode:</label>
+              <textarea id="jobPreGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the start of the job (one per line)"></textarea>
+            </div>
+            <div class="setting-item" style="flex: 1;">
+              <label for="jobPostGcode">Post-gcode:</label>
+              <textarea id="jobPostGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the end of the job (one per line)"></textarea>
+            </div>
+          </div>
+          <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
+            <div class="setting-item">
+              <label for="jobInvertDispense" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="jobInvertDispense" style="margin: 0;" />
+                <span>Invert Dispense</span>
+              </label>
             </div>
           </div>
         </div>
