@@ -39,6 +39,9 @@ onOpenCVReady(cv => {
   const jobDispenseDeg = document.getElementById('jobDispenseDeg');
   const jobRetractionDeg = document.getElementById('jobRetractionDeg');
   const jobDwellMs = document.getElementById('jobDwellMs');
+  const jobPreGcode = document.getElementById('jobPreGcode');
+  const jobPostGcode = document.getElementById('jobPostGcode');
+  const jobInvertDispense = document.getElementById('jobInvertDispense');
 
   if (jobDispenseDeg) {
     jobDispenseDeg.addEventListener('change', (e) => {
@@ -58,6 +61,27 @@ onOpenCVReady(cv => {
     jobDwellMs.addEventListener('change', (e) => {
       console.log('Dwell milliseconds changed:', e.target.value);
       currentJob.dwellMilliseconds = Number(e.target.value);
+    });
+  }
+
+  if (jobPreGcode) {
+    jobPreGcode.addEventListener('input', (e) => {
+      console.log('Pre-gcode changed');
+      currentJob.preGcode = e.target.value;
+    });
+  }
+
+  if (jobPostGcode) {
+    jobPostGcode.addEventListener('input', (e) => {
+      console.log('Post-gcode changed');
+      currentJob.postGcode = e.target.value;
+    });
+  }
+
+  if (jobInvertDispense) {
+    jobInvertDispense.addEventListener('change', (e) => {
+      console.log('Invert dispense changed:', e.target.checked);
+      currentJob.invertDispense = e.target.checked;
     });
   }
 
@@ -149,6 +173,9 @@ onOpenCVReady(cv => {
         if (jobDispenseDeg) currentJob.dispenseDegrees = Number(jobDispenseDeg.value);
         if (jobRetractionDeg) currentJob.retractionDegrees = Number(jobRetractionDeg.value);
         if (jobDwellMs) currentJob.dwellMilliseconds = Number(jobDwellMs.value);
+        if (jobPreGcode) currentJob.preGcode = jobPreGcode.value;
+        if (jobPostGcode) currentJob.postGcode = jobPostGcode.value;
+        if (jobInvertDispense) currentJob.invertDispense = jobInvertDispense.checked;
 
         await currentJob.saveToFile();
         
@@ -347,12 +374,16 @@ const retractBtn = document.getElementById('retract-btn');
 
 if (extrudeBtn) {
   extrudeBtn.addEventListener('click', () => {
-    serial.send(["G91", "G0 B-2", "G90"]); 
+    // Invert direction if invertDispense is enabled
+    const direction = currentJob.invertDispense ? 2 : -2;
+    serial.send(["G91", `G0 B${direction}`, "G90"]); 
   });
 }
 if (retractBtn) {
   retractBtn.addEventListener('click', () => {
-    serial.send(["G91", "G0 B2", "G90"]);
+    // Invert direction if invertDispense is enabled
+    const direction = currentJob.invertDispense ? -2 : 2;
+    serial.send(["G91", `G0 B${direction}`, "G90"]);
   });
 }
 

@@ -1479,6 +1479,9 @@
   "dispenseDegrees": 30,
   "retractionDegrees": 1,
   "dwellMilliseconds": 100,
+  "preGcode": "M115",
+  "postGcode": "M115\nG92",
+  "invertDispense": false,
   "tipXoffset": -45.99999999999997,
   "tipYoffset": 64.80000000000001
 }

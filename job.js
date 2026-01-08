@@ -49,6 +49,9 @@ export class Job {
         this.dispenseDegrees = 30;
         this.retractionDegrees = 1;
         this.dwellMilliseconds = 100;
+        this.preGcode = "";
+        this.postGcode = "";
+        this.invertDispense = false;
         this.lumen = lumen;
         this.toast = toast;
 
@@ -650,9 +653,12 @@ export class Job {
                 return fid;
             });
 
-            this.dispenseDegrees = data.dispenseDegrees;
-            this.retractionDegrees = data.retractionDegrees;
-            this.dwellMilliseconds = data.dwellMilliseconds;
+            this.dispenseDegrees = data.dispenseDegrees || 30;
+            this.retractionDegrees = data.retractionDegrees || 1;
+            this.dwellMilliseconds = data.dwellMilliseconds || 100;
+            this.preGcode = data.preGcode || "";
+            this.postGcode = data.postGcode || "";
+            this.invertDispense = data.invertDispense || false;
 
             // Set tip offsets if present
             if (typeof data.tipXoffset !== 'undefined') this.lumen.tipXoffset = data.tipXoffset;
@@ -662,10 +668,16 @@ export class Job {
             const jobDispenseDeg = document.getElementById('jobDispenseDeg');
             const jobRetractionDeg = document.getElementById('jobRetractionDeg');
             const jobDwellMs = document.getElementById('jobDwellMs');
+            const jobPreGcode = document.getElementById('jobPreGcode');
+            const jobPostGcode = document.getElementById('jobPostGcode');
+            const jobInvertDispense = document.getElementById('jobInvertDispense');
 
             if (jobDispenseDeg) jobDispenseDeg.value = this.dispenseDegrees;
             if (jobRetractionDeg) jobRetractionDeg.value = this.retractionDegrees;
             if (jobDwellMs) jobDwellMs.value = this.dwellMilliseconds;
+            if (jobPreGcode) jobPreGcode.value = this.preGcode;
+            if (jobPostGcode) jobPostGcode.value = this.postGcode;
+            if (jobInvertDispense) jobInvertDispense.checked = this.invertDispense;
 
             // Update the UI position list
             this.loadJobIntoPositionList();
@@ -801,6 +813,14 @@ export class Job {
     slice(){
         const commands = [];
 
+        // add pre-gcode commands
+        if (this.preGcode && this.preGcode.trim()) {
+            const preCommands = this.preGcode.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+            commands.push(...preCommands);
+        }
+
         commands.push(
             "G90",          // set to absolute mode
             "G92 B0",        // reset b axis to 0
@@ -818,8 +838,14 @@ export class Job {
 
         for(const point of this.placements) {
 
-            const dispenseAbsPos = currentB - dispenseDeg;
-            const retractionAbsPos = dispenseAbsPos + retractionDeg;
+            let dispenseAbsPos = currentB - dispenseDeg;
+            let retractionAbsPos = dispenseAbsPos + retractionDeg;
+
+            // Invert B-axis direction if invertDispense is enabled
+            if (this.invertDispense) {
+                dispenseAbsPos = currentB + dispenseDeg;
+                retractionAbsPos = dispenseAbsPos - retractionDeg;
+            }
 
             let x = point.x;
             let y = point.y;
@@ -846,6 +872,14 @@ export class Job {
         }
 
         commands.push("G0 X5 Y5");
+
+        // add post-gcode commands
+        if (this.postGcode && this.postGcode.trim()) {
+            const postCommands = this.postGcode.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+            commands.push(...postCommands);
+        }
 
         return commands;
 
@@ -902,6 +936,9 @@ export class Job {
             dispenseDegrees: this.dispenseDegrees,
             retractionDegrees: this.retractionDegrees,
             dwellMilliseconds: this.dwellMilliseconds,
+            preGcode: this.preGcode,
+            postGcode: this.postGcode,
+            invertDispense: this.invertDispense,
             tipXoffset: this.lumen.tipXoffset,
             tipYoffset: this.lumen.tipYoffset
         };

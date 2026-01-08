@@ -1078,10 +1078,25 @@ select:focus {
   max-width: calc(33.33% - 20px);
 }
 
+.setting-item:has(input[type="checkbox"]) {
+  flex: 0 0 auto;
+  max-width: none;
+}
+
 .setting-item label {
   color: #000000;
   font-size: 0.9em;
   margin: 0;
+}
+
+.setting-item label input[type="checkbox"] {
+  margin: 0;
+  margin-right: 4px;
+  padding: 0;
+  width: auto;
+  height: auto;
+  border: none;
+  box-shadow: none;
 }
 
 .setting-item input {
