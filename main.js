@@ -449,7 +449,7 @@ if (extrudeBtn) {
 const purgeAugerBtn = document.getElementById('purgeAuger');
 if (purgeAugerBtn) {
   purgeAugerBtn.addEventListener('click', () => {
-    serial.send([`M106 P2 S${Math.round(currentJob.vacuumPressure / 100 * 255)}`, "G91", "G0 B200000 F100000", "G90", "M107 P2"]);
+    serial.send([`M106 P2 S${Math.round(currentJob.vacuumPressure / 100 * 255)}`, `M906 B ${currentJob.motorCurrent}`, "G91", "G0 B200000 F100000", "G90", "M107 P2"]);
   });
 }
 

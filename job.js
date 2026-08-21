@@ -130,7 +130,7 @@ export class Job {
         this.motionSpeed = 35000;
         this.extruderSpeed = 100000;
         this.vacuumPressure = 100; // air assist, as a percentage (0-100)
-        this.motorCurrent = 200; // auger current while dispensing (M906 B value, mA)
+        this.motorCurrent = 450; // auger current while dispensing (M906 B value, mA)
         // Z height the nozzle rests/travels at between pads (and during a
         // fid-cal jog) - distinct from a placement's own .z, which is the
         // calibrated board-contact height. Lower = less distance to travel
@@ -1000,6 +1000,8 @@ export class Job {
                 return point;
             });
             this.boardOutline = data.boardOutline || [];
+            this.padShapes = data.padShapes || [];
+            this.showPadOverlay = data.showPadOverlay || false;
             this.fiducials = (data.fiducials || []).map(f => {
                 const fid = new Fiducial(f.x, f.y, f.z, f.searchX, f.searchY);
                 fid.calX = f.calX;
@@ -1013,7 +1015,7 @@ export class Job {
             this.motionSpeed = data.motionSpeed || 35000;
             this.extruderSpeed = data.extruderSpeed || 100000;
             this.vacuumPressure = typeof data.vacuumPressure !== 'undefined' ? data.vacuumPressure : 100;
-            this.motorCurrent = typeof data.motorCurrent !== 'undefined' ? data.motorCurrent : 200;
+            this.motorCurrent = typeof data.motorCurrent !== 'undefined' ? data.motorCurrent : 450;
             this.travelHeight = typeof data.travelHeight !== 'undefined' ? data.travelHeight : 31.5;
             this.preGcode = data.preGcode || "";
             this.postGcode = data.postGcode || "";
@@ -1052,6 +1054,9 @@ export class Job {
             if (xOffsetValue) xOffsetValue.textContent = `${this.lumen.tipXoffset.toFixed(1)}mm`;
             if (yOffsetValue) yOffsetValue.textContent = `${this.lumen.tipYoffset.toFixed(1)}mm`;
             if (zOffsetValue) zOffsetValue.textContent = `${this.lumen.zOffset.toFixed(1)}mm`;
+
+            const togglePadsButton = document.getElementById('vizTogglePads');
+            togglePadsButton?.classList.toggle('active', this.showPadOverlay);
 
             // Update the UI position list
             this.loadJobIntoPositionList();
@@ -1249,10 +1254,10 @@ export class Job {
             `G0 Z${z}`,                                    // Move z down
             "G91",                                         // Relative mode
             "M106 P2 S{VACUUM}",                            // Pump on (speed substituted live at send time)
-            "G0 Z-.5",                                      // Come up .5mm
+            "G0 Z-.9",                                      // Come up .9mm
             "M906 B {MOTOR_CURRENT}",                       // Extruder current high (substituted live at send time)
             `G0 B${dispenseSign * dispenseDeg} F${this.extruderSpeed}`, // Extrude paste
-            "G0 Z.3",                                       // Come down .3mm
+            "G0 Z.7",                                       // Come down .7mm
         ];
 
         // Wiggle the tip up/down to help release paste stuck to the nozzle
@@ -1410,6 +1415,8 @@ export class Job {
                 enabled: p.enabled
             })),
             boardOutline: this.boardOutline,
+            padShapes: this.padShapes,
+            showPadOverlay: this.showPadOverlay,
             fiducials: this.fiducials.map(f => ({
                 x: f.x,
                 y: f.y,

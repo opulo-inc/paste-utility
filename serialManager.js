@@ -42,6 +42,13 @@ export class serialManager {
     }
 
 
+    // Caps how many lines the on-screen console keeps. Without this, a long
+    // run (hundreds of points x ~18 gcode lines x send+receive) appends
+    // thousands of unremoved <p> nodes, and the scrollTop/scrollHeight
+    // reflow below gets more expensive as that list grows - the job visibly
+    // slows down over its own run. Trimming keeps each append O(1) instead.
+    static MAX_CONSOLE_LINES = 500;
+
     async appendToConsole(message, direction){
         let newConsoleEntry = document.createElement('p')
         let timestamp = new Date().toISOString();
@@ -53,10 +60,14 @@ export class serialManager {
         else{
         dir = "[RECE]"
         }
-        
+
         newConsoleEntry.innerHTML = dir + " - " + timestamp + " - " + message + '\n';
         this.consoleDiv.appendChild(newConsoleEntry)
-        
+
+        while (this.consoleDiv.childNodes.length > serialManager.MAX_CONSOLE_LINES) {
+            this.consoleDiv.removeChild(this.consoleDiv.firstChild);
+        }
+
         this.consoleDiv.scrollTop = this.consoleDiv.scrollHeight;
     }
 
