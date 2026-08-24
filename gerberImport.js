@@ -132,6 +132,17 @@ export const COMPONENT_CLUSTER_GAP_MM = 1.0
 // occasionally lower-precision than the gerber's.
 export const FIDUCIAL_DRILL_MATCH_TOLERANCE_MM = 0.08
 
+// A real SMD fiducial mark is always round and small (help.html tells users
+// to use 1mm-diameter fiducials); a mask opening outside this diameter range
+// is essentially always some other exposed-but-unpasted pad - a ground/
+// thermal tab, shield land, test point, mounting pad, etc - not a fiducial,
+// even after it's already passed the drill/repeating-array filters above.
+// Wide enough around the documented 1mm to tolerate boards that don't use
+// exactly that size. See isFiducialCandidateShape() below for the
+// accompanying round-only shape check.
+export const FIDUCIAL_CANDIDATE_MIN_DIAMETER_MM = 0.4
+export const FIDUCIAL_CANDIDATE_MAX_DIAMETER_MM = 2.0
+
 // Candidates this close together (same row/column) are grouped when checking
 // for a repeating array (see excludeRepeatingArrayCandidates()).
 export const REPEATING_ARRAY_GROUP_TOLERANCE_MM = 0.02
@@ -649,12 +660,41 @@ function excludeRepeatingArrayPoints(points, groupTolerance = REPEATING_ARRAY_GR
     return points.filter(point => !excluded.has(point))
 }
 
+// True for a mask opening whose aperture is round (circle/polygon) and sized
+// like a real fiducial (see FIDUCIAL_CANDIDATE_MIN/MAX_DIAMETER_MM) - false
+// for a rectangular/obround pad (a test point, ground/thermal tab, shield
+// land, connector pad, etc: exposed with no paste, but not a fiducial) or a
+// round one outside the plausible size range. A point with no shape/diameter
+// at all (e.g. hand-built rather than coming from extractPads()) passes
+// through unfiltered rather than being dropped on missing data.
+//
+// 'unknown' (a flash extractPads() couldn't resolve a real silhouette for -
+// see padFromTool) is rejected here too, deliberately: it comes with a
+// synthetic placeholder diameter rather than one read off the real aperture,
+// so there's no genuine size to check - happens to be small enough to always
+// clear FIDUCIAL_CANDIDATE_MIN_DIAMETER_MM regardless of the flash's real
+// size, which would make this check meaningless for that shape rather than
+// actually filtering it. Fiducials are near-universally plain circle
+// apertures in every major ECAD's gerber export, so an 'unknown' one is far
+// more likely something else entirely (an unmodeled macro on an ordinary
+// pad) - worth losing on a genuinely unusual board in exchange for not
+// letting every 'unknown' flash through unchecked. The manual "add fiducials
+// yourself" fallback (see loadGerberFiles()) covers that rare case.
+function isFiducialCandidateShape(point) {
+    if (point.shape == null) return true
+    if (point.shape !== 'circle' && point.shape !== 'polygon') return false
+
+    const diameter = point.diameter ?? Math.max(point.xSize ?? 0, point.ySize ?? 0)
+    return diameter >= FIDUCIAL_CANDIDATE_MIN_DIAMETER_MM && diameter <= FIDUCIAL_CANDIDATE_MAX_DIAMETER_MM
+}
+
 // Narrows raw "mask opening with no paste" points down to plausible fiducial
 // candidates: drops anything that coincides with a drilled hole (a real SMD
-// fiducial is never drilled) and anything that's part of an evenly-pitched
-// row/column of 3+ (a connector or header footprint, not fiducials). Neither
-// check needs Gerber X2 metadata, so this works the same whether or not the
-// board's export included component attributes.
+// fiducial is never drilled), anything that isn't round and fiducial-sized
+// (see isFiducialCandidateShape()), and anything that's part of an
+// evenly-pitched row/column of 3+ (a connector or header footprint, not
+// fiducials). None of these checks need Gerber X2 metadata, so this works
+// the same whether or not the board's export included component attributes.
 export function findFiducialCandidates(maskOnlyPoints, drillHoles) {
     const notDrilled = drillHoles.length === 0 ? maskOnlyPoints : maskOnlyPoints.filter(point =>
         !drillHoles.some(hole =>
@@ -663,7 +703,9 @@ export function findFiducialCandidates(maskOnlyPoints, drillHoles) {
         )
     )
 
-    return excludeRepeatingArrayPoints(notDrilled)
+    const plausiblyShaped = notDrilled.filter(isFiducialCandidateShape)
+
+    return excludeRepeatingArrayPoints(plausiblyShaped)
 }
 
 // Reads the selected file(s), classifies each one, and returns the paste pad
@@ -730,7 +772,11 @@ export async function importGerberSet(fileList) {
             pastePads = extractPads(tree)
             pasteSide = side
         } else if (kind === 'mask' && (maskFlashes === null || (maskSide === 'bottom' && side === 'top'))) {
-            maskFlashes = extractPads(tree).map(p => ({x: p.x, y: p.y}))
+            // Keeps shape/diameter (previously stripped down to just {x, y}) -
+            // findFiducialCandidates() needs them to tell a real round fiducial
+            // opening apart from an ordinary rectangular/obround pad that
+            // just happens to have no paste under it.
+            maskFlashes = extractPads(tree)
             maskSide = side
         } else if (kind === 'outline' && outline === null) {
             outline = extractOutline(tree)

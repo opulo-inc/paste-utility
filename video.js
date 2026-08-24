@@ -1,3 +1,16 @@
+// A LumenPnP fiducial is documented as 1mm in diameter (help.html), and
+// lumen.js's jogToFiducial() already assumes 1 camera pixel = 0.02mm at this
+// camera's working distance (its own scalingFactor, used to convert a
+// detected circle's pixel offset into a jog distance) - i.e. 50px/mm, so a
+// real fiducial should read as ~25px in radius on screen. HoughCircles' own
+// minRadius/maxRadius used to be a nearly unbounded 1-50px, which let in any
+// circular-ish blob from a stray pixel up to a 2mm-radius smudge - silkscreen
+// text loops, round pads/vias, logos, etc. Constraining the search to a band
+// around that expected ~25px (generous enough for camera height/focus/board
+// variance) rejects most of those before they can ever be considered.
+const FIDUCIAL_HOUGH_MIN_RADIUS_PX = 15
+const FIDUCIAL_HOUGH_MAX_RADIUS_PX = 35
+
 export class VideoManager {
   constructor(cv) {
     this.cv = cv;
@@ -148,9 +161,14 @@ export class VideoManager {
             1,
             gray.rows / 8,
             50,
-            30,
-            1,
-            50
+            // Accumulator threshold - how strong a circle's edge evidence has
+            // to be to count as a detection. Raised from 30 to require more
+            // confident evidence, on top of the tighter radius band below,
+            // for further rejecting weak/partial circular shapes (silkscreen
+            // text, etc.) that would otherwise still sneak through.
+            40,
+            FIDUCIAL_HOUGH_MIN_RADIUS_PX,
+            FIDUCIAL_HOUGH_MAX_RADIUS_PX
         );
 
         let bestCircle = null;
@@ -166,7 +184,7 @@ export class VideoManager {
               }else{
                 // Choose circle closest to center
                 let center_x = this.cvFrame.cols/2;
-                let center_y = this.cvFrame.cols/2;
+                let center_y = this.cvFrame.rows/2;
                 let dx = x-center_x;
                 let dy = y-center_y;
                 let dist = Math.sqrt(dx*dx+dy*dy);
