@@ -531,11 +531,10 @@ export class Job {
     // Re-runs the currently loaded board's pads through buildPlacementsFromPadShapes()
     // with whatever Advanced Settings are live right now, so tweaking a
     // setting shows up immediately instead of needing another Import Gerber.
-    // Re-applies the existing fid-cal transform (if any) to the freshly
-    // rebuilt points so a calibration already done isn't lost - but per-pad
-    // enabled/disabled selections ARE reset, same as a fresh import, since a
-    // settings change can change how many dots a pad even has (no stable 1:1
-    // mapping from old dots to new ones to carry that flag across).
+    // Re-applies the existing fid-cal transform (if any), the board's
+    // calibrated Z, each component's enabled/disabled selection, and any
+    // manually captured points to the freshly rebuilt placements, so none of
+    // that gets silently lost just from touching a slider.
     // Returns false (no-op) if there's no gerber-imported board loaded yet.
     recomputeDispensePattern(){
         if (!this.padShapes || this.padShapes.length === 0) return false;
@@ -555,6 +554,23 @@ export class Job {
         const gerberPoints = this.placements.filter(p => p.refdes != null);
         const manualPoints = this.placements.filter(p => p.refdes == null);
 
+        // Which components were checked/unchecked before the rebuild, so a
+        // settings tweak doesn't silently re-enable everything. The Job
+        // Positions list only ever toggles enabled at whole-component (or
+        // whole-type, or select all/none) granularity - see
+        // renderComponentGroup/renderComponentTypeGroup/setAllPlacementsEnabled
+        // - never a single pad within a component, so "every pad of this
+        // refdes was enabled" faithfully captures that component's checkbox
+        // state regardless of how many dots it had before. A settings change
+        // can still change how many dots a pad gets, so this maps by refdes
+        // rather than trying to carry the flag across old dot -> new dot
+        // (no stable 1:1 mapping between them).
+        const enabledByRefdes = new Map();
+        for (const p of gerberPoints) {
+            const prevEnabled = enabledByRefdes.has(p.refdes) ? enabledByRefdes.get(p.refdes) : true;
+            enabledByRefdes.set(p.refdes, prevEnabled && p.enabled !== false);
+        }
+
         // All gerber-derived placements share one Z - performBoardCalibration()
         // touches the board once and stamps that height onto every point - so
         // grabbing it off any existing one before rebuilding preserves it.
@@ -567,6 +583,11 @@ export class Job {
         const priorZ = gerberPoints.length ? gerberPoints[0].z : null;
 
         this.placements = this.buildPlacementsFromPadShapes(this.padShapes);
+
+        for (const point of this.placements) {
+            const enabled = enabledByRefdes.get(point.refdes);
+            if (enabled !== undefined) point.enabled = enabled;
+        }
 
         if (priorZ != null) {
             for (const point of this.placements) point.z = priorZ;
