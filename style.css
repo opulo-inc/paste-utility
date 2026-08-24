@@ -282,6 +282,12 @@ label {
   margin: 4px 0;
 }
 
+.position-item .pad-enable-toggle {
+  margin: 0 8px 0 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 .position-item .position-text {
   flex: 1;
 }

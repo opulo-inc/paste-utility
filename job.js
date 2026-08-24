@@ -1325,6 +1325,14 @@ export class Job {
         // without re-running the whole job.
         const dispenseButton = isFiducial ? '' : '<button class="dispense-btn" title="Paste this pad only">⤓</button>';
 
+        // Per-pad enable/disable - lets you skip just this one dot on a run
+        // without disabling its whole component. Deliberately not preserved
+        // through recomputeDispensePattern() beyond the whole-component state
+        // it already carries (see there) - a settings change can change how
+        // many dots a pad even has, so there's no stable dot-to-dot mapping to
+        // carry a single dot's own flag across.
+        const enableToggle = isFiducial ? '' : `<input type="checkbox" class="pad-enable-toggle" title="Paste this pad on a run" ${position.enabled !== false ? 'checked' : ''}>`;
+
         if(isFiducial){
             newDiv.innerHTML = `
             <span class="position-text">Fiducial: X:${writtenX} Y:${writtenY} Z:${position.z}</span>
@@ -1336,6 +1344,7 @@ export class Job {
         }
         else{
             newDiv.innerHTML = `
+            ${enableToggle}
             <span class="position-text">Position: X:${writtenX} Y:${writtenY} Z:${position.z}</span>
             <div class="button-group">
                 <button class="move-btn">☉</button>
@@ -1345,7 +1354,15 @@ export class Job {
         `;
         }
 
-
+        // Add click handler for the per-pad enable/disable checkbox
+        const padEnableToggle = newDiv.querySelector('.pad-enable-toggle');
+        if (padEnableToggle) {
+            padEnableToggle.addEventListener('change', (e) => {
+                position.enabled = e.target.checked;
+                this.loadJobIntoPositionList();
+                this.drawJobToCanvas();
+            });
+        }
 
         // Add click handler for Move To button
         newDiv.querySelector('.move-btn').addEventListener('click', () => {
