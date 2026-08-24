@@ -30,18 +30,26 @@ export function placementDotRadiusMm(dispenseDegrees) {
 // length:width ratio and absolute length clear both of these. Lowered from an
 // earlier 1.2mm floor - IC gull-wing leads (SOIC/TSOP/QFP) are frequently
 // shorter than that and were collapsing to a single dot.
-export const ELONGATED_ASPECT_RATIO = 2.2
-export const ELONGATED_MIN_LENGTH_MM = 0.6
+//
+// These (through STAGGER_OFFSET_FRACTION/TIGHT_PITCH_VOLUME_MULTIPLIER below)
+// are `let`, not `const` - they're exposed as the Advanced Settings tab's
+// normal/grid/stagger paste tuning (see getPasteDispenseSettings/
+// setPasteDispenseSettings at the bottom of this section), and every
+// function below reads the live module binding each time it runs, so a
+// setPasteDispenseSettings() call takes effect on the next gerber import
+// with no other wiring needed.
+export let ELONGATED_ASPECT_RATIO = 2.2
+export let ELONGATED_MIN_LENGTH_MM = 0.6
 
 // But below this width, a pad is too "fine" to usefully split into multiple
 // dots - the deposits would just merge into each other (or the tip can't
 // resolve them at all) - so it stays a single dot no matter how long it is.
-export const MIN_LINE_WIDTH_MM = 0.3
+export let MIN_LINE_WIDTH_MM = 0.3
 
 // Elongated pads get a bit more total paste than the flat area formula alone
 // would give them - a long thin lead needs enough paste along its whole
 // length to wet properly, not just "area equivalent" to a square pad.
-export const ELONGATED_VOLUME_MULTIPLIER = 1.3
+export let ELONGATED_VOLUME_MULTIPLIER = 1.3
 
 // Spacing between dots along a line, and how far dots stay inset from the
 // pad's edge so paste doesn't get squeezed out past the pad. 0.15 put the two
@@ -50,8 +58,8 @@ export const ELONGATED_VOLUME_MULTIPLIER = 1.3
 // blob's own spread reaches past the copper. 0.3 keeps every line pattern's
 // dots noticeably more inset regardless of pad length, not just this board's
 // specific parts.
-export const DOT_PITCH_MM = 0.9
-export const PAD_EDGE_INSET_MM = 0.3
+export let DOT_PITCH_MM = 0.9
+export let PAD_EDGE_INSET_MM = 0.3
 
 // Grid dots (see POWER_PAD_MIN_AREA_MM2 below) use a tighter pitch than a
 // line does, for even coverage across a big open thermal/power pad. Each
@@ -59,7 +67,7 @@ export const PAD_EDGE_INSET_MM = 0.3
 // a pad-wide ceiling across however many dots this pitch produces (see
 // totalDispenseDegreesForPad/clampDotDegrees) - so a tighter pitch here now
 // means more, still-appropriately-sized dots instead of more, thinner ones.
-export const GRID_DOT_PITCH_MM = 1.5
+export let GRID_DOT_PITCH_MM = 1.5
 
 // Grid pads use a bigger edge inset than PAD_EDGE_INSET_MM: a grid's outer
 // ring of dots sits close to the pad edge on two axes at once (not just one,
@@ -67,27 +75,35 @@ export const GRID_DOT_PITCH_MM = 1.5
 // squeeze past the copper. Pulling the whole grid in tighter keeps every
 // dot's spread within the pad while leaving the per-dot volume (and dot
 // count) unchanged.
-export const GRID_EDGE_INSET_MM = 0.8
+export let GRID_EDGE_INSET_MM = 0.8
 
 // A pad this big (e.g. a QFN/thermal power pad) gets a grid of dots instead
 // of a single deposit.
-export const POWER_PAD_MIN_AREA_MM2 = 4.0
+export let POWER_PAD_MIN_AREA_MM2 = 4.0
 
 // Pads whose nearest-neighbor edge-to-edge gap is under this are treated as
 // fine-pitch (TSOP/QFP/SOIC-style, i.e. gull-wing IC leads sitting in a tight
 // row). See planPadDispense() for what that changes.
-export const TIGHT_PITCH_GAP_MM = 0.35
+export let TIGHT_PITCH_GAP_MM = 0.35
 
 // A pad wider than this is never treated as a fine-pitch lead, no matter how
 // close its neighbor sits - real QFP/SOIC/TSOP leads are rarely wider than
 // ~0.6mm, so this comfortably covers them while excluding chunky power/tab
 // pads (1mm+) that can legitimately sit just as close to a neighbor.
-export const TIGHT_PITCH_MAX_PAD_WIDTH_MM = 1.0
+export let TIGHT_PITCH_MAX_PAD_WIDTH_MM = 1.0
 
 // A tight-pitch pad's single stagger dot is nudged along the pad's own long
 // axis by this fraction of the pad's own half-length, so it stays inside the
 // pad's copper. Kept under 1.0 so the dot can't land past the pad edge.
-export const STAGGER_OFFSET_FRACTION = 0.85
+export let STAGGER_OFFSET_FRACTION = 0.85
+
+// Extra multiplier on a tight-pitch (staggered) pad's own dispense volume,
+// on top of whatever ELONGATED_VOLUME_MULTIPLIER already gave it - fine-pitch
+// leads are the pads most prone to solder bridging, so this is the lever for
+// dialing volume down (or up) on just that pad population without touching
+// every other pad's dispense math. 1.0 = no change from the normal/elongated
+// volume.
+export let TIGHT_PITCH_VOLUME_MULTIPLIER = 1.0
 
 // Pads within this Y distance of each other are considered the same "row"
 // when sorting into a deterministic raster (bottom-to-top, left-to-right).
@@ -124,6 +140,73 @@ export const REPEATING_ARRAY_GROUP_TOLERANCE_MM = 0.02
 // spacing" - i.e. an evenly-pitched row, like a connector or header.
 export const REPEATING_ARRAY_GAP_TOLERANCE_MM = 0.05
 // -----------------------------------------------------------------------------
+
+// Snapshot of the tunables above's factory values, taken once at module load
+// (before setPasteDispenseSettings() can ever mutate them) - lets the
+// Advanced Settings tab offer a "Reset to defaults" action.
+const DEFAULT_PASTE_DISPENSE_SETTINGS = Object.freeze({
+    elongatedAspectRatio: ELONGATED_ASPECT_RATIO,
+    elongatedMinLengthMm: ELONGATED_MIN_LENGTH_MM,
+    minLineWidthMm: MIN_LINE_WIDTH_MM,
+    elongatedVolumeMultiplier: ELONGATED_VOLUME_MULTIPLIER,
+    dotPitchMm: DOT_PITCH_MM,
+    padEdgeInsetMm: PAD_EDGE_INSET_MM,
+    gridDotPitchMm: GRID_DOT_PITCH_MM,
+    gridEdgeInsetMm: GRID_EDGE_INSET_MM,
+    powerPadMinAreaMm2: POWER_PAD_MIN_AREA_MM2,
+    tightPitchGapMm: TIGHT_PITCH_GAP_MM,
+    tightPitchMaxPadWidthMm: TIGHT_PITCH_MAX_PAD_WIDTH_MM,
+    staggerOffsetFraction: STAGGER_OFFSET_FRACTION,
+    tightPitchVolumeMultiplier: TIGHT_PITCH_VOLUME_MULTIPLIER,
+})
+
+// Reads the live values of every pad-dispense tunable above, for populating
+// the Advanced Settings tab's inputs (and for saving them with a job file -
+// see Job.export()/importFromFile() in job.js).
+export function getPasteDispenseSettings() {
+    return {
+        elongatedAspectRatio: ELONGATED_ASPECT_RATIO,
+        elongatedMinLengthMm: ELONGATED_MIN_LENGTH_MM,
+        minLineWidthMm: MIN_LINE_WIDTH_MM,
+        elongatedVolumeMultiplier: ELONGATED_VOLUME_MULTIPLIER,
+        dotPitchMm: DOT_PITCH_MM,
+        padEdgeInsetMm: PAD_EDGE_INSET_MM,
+        gridDotPitchMm: GRID_DOT_PITCH_MM,
+        gridEdgeInsetMm: GRID_EDGE_INSET_MM,
+        powerPadMinAreaMm2: POWER_PAD_MIN_AREA_MM2,
+        tightPitchGapMm: TIGHT_PITCH_GAP_MM,
+        tightPitchMaxPadWidthMm: TIGHT_PITCH_MAX_PAD_WIDTH_MM,
+        staggerOffsetFraction: STAGGER_OFFSET_FRACTION,
+        tightPitchVolumeMultiplier: TIGHT_PITCH_VOLUME_MULTIPLIER,
+    }
+}
+
+// Applies any of the fields above that are present in `settings` (missing
+// fields are left untouched, so a partial update - or an older saved job file
+// missing newer fields - doesn't reset the rest back to defaults). Every
+// classify/plan function above reads these module bindings directly each
+// time it runs, so this takes effect on the very next gerber import with no
+// other plumbing needed.
+export function setPasteDispenseSettings(settings) {
+    if (settings.elongatedAspectRatio != null) ELONGATED_ASPECT_RATIO = settings.elongatedAspectRatio
+    if (settings.elongatedMinLengthMm != null) ELONGATED_MIN_LENGTH_MM = settings.elongatedMinLengthMm
+    if (settings.minLineWidthMm != null) MIN_LINE_WIDTH_MM = settings.minLineWidthMm
+    if (settings.elongatedVolumeMultiplier != null) ELONGATED_VOLUME_MULTIPLIER = settings.elongatedVolumeMultiplier
+    if (settings.dotPitchMm != null) DOT_PITCH_MM = settings.dotPitchMm
+    if (settings.padEdgeInsetMm != null) PAD_EDGE_INSET_MM = settings.padEdgeInsetMm
+    if (settings.gridDotPitchMm != null) GRID_DOT_PITCH_MM = settings.gridDotPitchMm
+    if (settings.gridEdgeInsetMm != null) GRID_EDGE_INSET_MM = settings.gridEdgeInsetMm
+    if (settings.powerPadMinAreaMm2 != null) POWER_PAD_MIN_AREA_MM2 = settings.powerPadMinAreaMm2
+    if (settings.tightPitchGapMm != null) TIGHT_PITCH_GAP_MM = settings.tightPitchGapMm
+    if (settings.tightPitchMaxPadWidthMm != null) TIGHT_PITCH_MAX_PAD_WIDTH_MM = settings.tightPitchMaxPadWidthMm
+    if (settings.staggerOffsetFraction != null) STAGGER_OFFSET_FRACTION = settings.staggerOffsetFraction
+    if (settings.tightPitchVolumeMultiplier != null) TIGHT_PITCH_VOLUME_MULTIPLIER = settings.tightPitchVolumeMultiplier
+}
+
+export function resetPasteDispenseSettings() {
+    setPasteDispenseSettings(DEFAULT_PASTE_DISPENSE_SETTINGS)
+    return getPasteDispenseSettings()
+}
 
 // Accepts a FileList/array. If it's a single .zip, unzips it (typical fab
 // output bundle from KiCad/JLCPCB/EasyEDA); otherwise treats every selected
@@ -713,6 +796,7 @@ function classifyPad(pad) {
 function totalDispenseDegreesForPad(pad, baseDispenseDegrees, kind) {
     let raw = baseDispenseDegrees * (pad.area / NOMINAL_0402_PAD_AREA_MM2)
     if (kind === 'line') raw *= ELONGATED_VOLUME_MULTIPLIER
+    if (pad.tightPitch) raw *= TIGHT_PITCH_VOLUME_MULTIPLIER
     return raw
 }
 
@@ -743,12 +827,20 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
     if (kind === 'line') {
         const length = padLength(pad)
         const usable = Math.max(length - 2 * PAD_EDGE_INSET_MM, 0.1)
-        const dotCount = Math.max(2, Math.round(usable / DOT_PITCH_MM) + 1)
+
+        // Only split into multiple dots once there's a full DOT_PITCH_MM of
+        // usable length to actually space them across - a pad just barely
+        // over the elongated threshold clamps `usable` down near its 0.1mm
+        // floor, and forcing a minimum of 2 dots there (the old
+        // Math.max(2, ...)) placed them only ~0.1-0.3mm apart: well inside
+        // each dot's own drawn radius, so they rendered right on top of each
+        // other instead of as a real line pattern.
+        const dotCount = usable >= DOT_PITCH_MM ? Math.round(usable / DOT_PITCH_MM) + 1 : 1
         const spacing = dotCount > 1 ? usable / (dotCount - 1) : 0
 
         points = []
         for (let i = 0; i < dotCount; i++) {
-            const offset = -usable / 2 + i * spacing
+            const offset = dotCount > 1 ? -usable / 2 + i * spacing : 0
             points.push({
                 dx: alongX ? offset : 0,
                 dy: alongX ? 0 : offset,
@@ -760,8 +852,17 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
         // DOT_PITCH_MM) - see its definition for why.
         const usableX = Math.max(pad.xSize - 2 * GRID_EDGE_INSET_MM, 0.1)
         const usableY = Math.max(pad.ySize - 2 * GRID_EDGE_INSET_MM, 0.1)
-        const cols = Math.max(2, Math.round(usableX / GRID_DOT_PITCH_MM) + 1)
-        const rows = Math.max(2, Math.round(usableY / GRID_DOT_PITCH_MM) + 1)
+
+        // As with the 'line' pattern above, only split an axis into multiple
+        // dots once there's a full GRID_DOT_PITCH_MM of usable room on that
+        // axis - a wide, flat connector/screw-terminal pad (e.g. J-type
+        // parts) is big enough in area to classify as 'grid' but often has
+        // one short axis that clamps down near its 0.1mm floor. Forcing a
+        // minimum of 2 rows/cols there (the old Math.max(2, ...)) placed
+        // that axis's two dot rows/columns only ~0.1mm apart - on top of
+        // each other instead of a real grid.
+        const cols = usableX >= GRID_DOT_PITCH_MM ? Math.round(usableX / GRID_DOT_PITCH_MM) + 1 : 1
+        const rows = usableY >= GRID_DOT_PITCH_MM ? Math.round(usableY / GRID_DOT_PITCH_MM) + 1 : 1
         const stepX = cols > 1 ? usableX / (cols - 1) : 0
         const stepY = rows > 1 ? usableY / (rows - 1) : 0
         const dotCount = cols * rows
@@ -770,8 +871,8 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
                 points.push({
-                    dx: -usableX / 2 + c * stepX,
-                    dy: -usableY / 2 + r * stepY,
+                    dx: cols > 1 ? -usableX / 2 + c * stepX : 0,
+                    dy: rows > 1 ? -usableY / 2 + r * stepY : 0,
                     dispenseDegrees: clampDotDegrees(total / dotCount)
                 })
             }

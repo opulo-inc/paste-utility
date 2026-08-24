@@ -52,6 +52,10 @@
 
               <button id="performFidCal" class="goldenrod-button">Perform Fid Cal</button>
               <button id="captureNewPos" class="goldenrod-button">Capture New Position</button>
+              <div class="select-all-none">
+                <button id="selectAllComponents" class="goldenrod-button" type="button">Select All</button>
+                <button id="selectNoneComponents" class="goldenrod-button" type="button">Select None</button>
+              </div>
             </div>
             <div class="positions-list">
             </div>
@@ -73,6 +77,12 @@
         </div>
 
         <div class="settings-section">
+          <div class="settings-tabs">
+            <button type="button" class="settings-tab-btn active" id="settingsTabBasic" data-tab-panel="basicSettingsPanel">Basic</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabAdvanced" data-tab-panel="advancedSettingsPanel">Advanced</button>
+          </div>
+
+          <div id="basicSettingsPanel">
           <h2>Extruder Settings</h2>
           <div class="settings-row">
             <div class="setting-item">
@@ -144,6 +154,93 @@
               </div>
             </div>
           </div>
+          </div>
+
+          <div id="advancedSettingsPanel" style="display: none;">
+            <h2>Advanced Paste Dispense Settings</h2>
+            <p class="advanced-settings-note">
+              Tunes how a gerber import turns pad footprints into dispense dots
+              (see gerberImport.js). Changing a value immediately re-runs the
+              currently loaded board's pads through the new setting - no need
+              to re-import the gerber. Note: this resets any per-pad
+              enable/disable selections back to all-enabled, since a settings
+              change can change how many dots a pad even has.
+            </p>
+
+            <div class="advanced-settings-group">
+              <h3>Normal Pad Dispense</h3>
+              <div class="settings-row">
+                <div class="setting-item">
+                  <label for="advElongatedAspectRatio" title="Length:width ratio a pad must clear to be treated as elongated (line pattern) instead of a single dot">Elongated Aspect Ratio:</label>
+                  <input type="number" id="advElongatedAspectRatio" min="1" step="0.1" value="2.2" />
+                </div>
+                <div class="setting-item">
+                  <label for="advElongatedMinLengthMm" title="Minimum pad length (mm) to be treated as elongated">Elongated Min Length (mm):</label>
+                  <input type="number" id="advElongatedMinLengthMm" min="0" step="0.05" value="0.6" />
+                </div>
+                <div class="setting-item">
+                  <label for="advMinLineWidthMm" title="Below this pad width (mm), a pad never splits into a line of dots">Min Line Width (mm):</label>
+                  <input type="number" id="advMinLineWidthMm" min="0" step="0.05" value="0.3" />
+                </div>
+                <div class="setting-item">
+                  <label for="advDotPitchMm" title="Spacing (mm) between dots along an elongated pad's line pattern">Dot Pitch (mm):</label>
+                  <input type="number" id="advDotPitchMm" min="0.1" step="0.05" value="0.9" />
+                </div>
+                <div class="setting-item">
+                  <label for="advPadEdgeInsetMm" title="How far (mm) a line pattern's dots stay inset from the pad edge">Pad Edge Inset (mm):</label>
+                  <input type="number" id="advPadEdgeInsetMm" min="0" step="0.05" value="0.3" />
+                </div>
+                <div class="setting-item">
+                  <label for="advElongatedVolumeMultiplier" title="Extra paste volume multiplier for elongated (line-pattern) pads">Elongated Volume Multiplier:</label>
+                  <input type="number" id="advElongatedVolumeMultiplier" min="0" step="0.05" value="1.3" />
+                </div>
+              </div>
+            </div>
+
+            <div class="advanced-settings-group">
+              <h3>Solder Paste Grid Settings</h3>
+              <div class="settings-row">
+                <div class="setting-item">
+                  <label for="advPowerPadMinAreaMm2" title="Pad area (mm²) at or above which a pad gets a grid of dots instead of one dot/line">Grid Pad Min Area (mm²):</label>
+                  <input type="number" id="advPowerPadMinAreaMm2" min="0" step="0.1" value="4.0" />
+                </div>
+                <div class="setting-item">
+                  <label for="advGridDotPitchMm" title="Spacing (mm) between dots in a grid pattern">Grid Dot Pitch (mm):</label>
+                  <input type="number" id="advGridDotPitchMm" min="0.1" step="0.05" value="1.5" />
+                </div>
+                <div class="setting-item">
+                  <label for="advGridEdgeInsetMm" title="How far (mm) a grid pattern's outer dots stay inset from the pad edge">Grid Edge Inset (mm):</label>
+                  <input type="number" id="advGridEdgeInsetMm" min="0" step="0.05" value="0.8" />
+                </div>
+              </div>
+            </div>
+
+            <div class="advanced-settings-group">
+              <h3>Staggered / Tight-Pitch Dispense</h3>
+              <div class="settings-row">
+                <div class="setting-item">
+                  <label for="advTightPitchGapMm" title="Edge-to-edge gap (mm) under which neighboring pads are treated as fine-pitch/tight-pitch">Tight-Pitch Gap (mm):</label>
+                  <input type="number" id="advTightPitchGapMm" min="0" step="0.05" value="0.35" />
+                </div>
+                <div class="setting-item">
+                  <label for="advTightPitchMaxPadWidthMm" title="Pads wider than this (mm) are never treated as tight-pitch, no matter how close a neighbor sits">Tight-Pitch Max Pad Width (mm):</label>
+                  <input type="number" id="advTightPitchMaxPadWidthMm" min="0" step="0.05" value="1.0" />
+                </div>
+                <div class="setting-item">
+                  <label for="advStaggerOffsetFraction" title="Stagger spacing: how far (as a fraction of the pad's own half-length) a tight-pitch pad's single dot is nudged off-center, alternating direction pad-to-pad">Stagger Spacing:</label>
+                  <input type="number" id="advStaggerOffsetFraction" min="0" max="1" step="0.05" value="0.85" />
+                </div>
+                <div class="setting-item">
+                  <label for="advTightPitchVolumeMultiplier" title="Extra paste volume multiplier applied only to staggered/tight-pitch pads, independent of the elongated multiplier above">Stagger Paste Multiplier:</label>
+                  <input type="number" id="advTightPitchVolumeMultiplier" min="0" step="0.05" value="1.0" />
+                </div>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button id="resetAdvancedSettings" class="goldenrod-button" type="button">Reset to Defaults</button>
+            </div>
+          </div>
         </div>
 
         <div class="settings-section">
@@ -151,6 +248,7 @@
             <button id="exportJob" class="goldenrod-button">Export Job</button>
             <button id="runJob" class="goldenrod-button">Run Job</button>
           </div>
+          <div id="jobRunTime" class="job-run-time"></div>
         </div>
       </div>
 

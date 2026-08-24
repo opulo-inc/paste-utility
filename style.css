@@ -379,6 +379,111 @@ label {
   cursor: pointer;
 }
 
+/* Per-component action buttons (move/dispense/remove a whole refdes group at
+   once) reuse the same button classes as the per-pad row in
+   .position-item .button-group, just in the .component-header context. */
+.group-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.position-item button,
+.group-actions button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  min-width: 28px;
+  min-height: 28px;
+}
+
+.position-item .move-btn,
+.group-actions .move-btn {
+  color: #2196F3;
+  font-family: monospace;
+}
+
+.position-item .dispense-btn,
+.group-actions .dispense-btn {
+  color: #d4a017;
+}
+
+.position-item .remove-btn,
+.group-actions .remove-btn {
+  color: #f44336;
+}
+
+.position-item button:hover,
+.group-actions button:hover {
+  background: #f5f5f5;
+}
+
+.positions-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.select-all-none {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Advanced Settings tab switcher - Basic (Extruder Settings) vs Advanced
+   (paste-dispense pattern tuning from gerberImport.js's tunable constants). */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  margin-bottom: 1rem;
+}
+
+.settings-tab-btn {
+  background: none;
+  color: #666;
+  padding: 0.6rem 1.2rem;
+  border-radius: 4px 4px 0 0;
+  box-shadow: none;
+}
+
+.settings-tab-btn:hover {
+  background-color: #f0f0f0;
+  transform: none;
+}
+
+.settings-tab-btn.active {
+  background-color: var(--button-bg);
+  color: black;
+}
+
+.advanced-settings-group {
+  background-color: #fff;
+  border: 1px solid var(--accent-color, #e0e0e0);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.advanced-settings-group h3 {
+  margin: 0 0 0.75rem 0;
+  color: #333;
+  font-size: 1rem;
+}
+
+.advanced-settings-note {
+  font-size: 0.85em;
+  color: #666;
+  margin: 0 0 1rem 0;
+}
+
 #capture-controls {
   
   display:flex;
@@ -914,8 +1019,10 @@ select:focus {
   display: flex;
   gap: 10px;
   align-items: center;
-  margin: 10px 0;
+  margin: 10px auto;
   padding: 0 20px;
+  width: 90%;
+  justify-content: flex-end;
 }
 
 #top-controls select {
@@ -1052,6 +1159,15 @@ select:focus {
   background-color: #6c757d;
 }
 
+/* #disconnect isn't in a .control-row, so it doesn't pick up the 10px
+   padding every other grey button in the control panel gets - it was
+   rendering as a skinny sliver instead of a proper button. */
+#disconnect {
+  padding: 10px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
 #left-air-toggle:hover, #right-air-toggle:hover, #left-vac:hover, #right-vac:hover, #disable-steppers:hover,
 #ring-lights-toggle:hover, #home-x:hover, #home-y:hover, #home-z:hover, #disconnect:hover {
   background-color: #5a6268;
@@ -1092,6 +1208,14 @@ select:focus {
   display: flex;
   gap: 0.5rem;
   justify-content: center;
+}
+
+.job-run-time {
+  text-align: center;
+  margin-top: 0.5rem;
+  font-size: 0.9em;
+  color: #333;
+  min-height: 1.2em;
 }
 
 .control-buttons {

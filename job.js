@@ -1,5 +1,5 @@
 import {fromTriangles, applyToPoint, applyToPoints} from 'transformation-matrix';
-import {importGerberSet, tagTightPitchPads, computeAlternatingSigns, planPadDispense, groupPadsByComponent, findFiducialCandidates, COMPONENT_TYPE_ORDER, placementDotRadiusMm} from './gerberImport.js';
+import {importGerberSet, tagTightPitchPads, computeAlternatingSigns, planPadDispense, groupPadsByComponent, findFiducialCandidates, COMPONENT_TYPE_ORDER, placementDotRadiusMm, getPasteDispenseSettings, setPasteDispenseSettings} from './gerberImport.js';
 
 // 'multipad'/'inferred' only ever appear for a board with no %TO.C%
 // component attributes at all - the pads are still real, but the grouping is
@@ -29,6 +29,15 @@ const COMPONENT_TYPE_LABELS = {
 // size) at any zoom level, instead of staying a fixed pixel size that reads
 // as shrinking, relative to everything else, as you zoom in.
 const PLACEMENT_DOT_MIN_RADIUS_PX = 1
+
+// Formats a millisecond duration as m:ss (e.g. 754321 -> "12:34") for the
+// job run timer.
+function formatElapsed(ms){
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
 
 // Traces a stadium/rounded-rect path (used for the 'obround' pad overlay) -
 // not relying on ctx.roundRect since it's not universally supported.
@@ -144,6 +153,13 @@ export class Job {
         this.lumen = lumen;
         this.toast = toast;
 
+        // Job run timer - runStartTime/runTimerInterval track the in-progress
+        // run, lastRunDurationMs is the most recently finished run's total
+        // time, kept around so the display doesn't clear itself between runs.
+        this.runStartTime = null;
+        this.runTimerInterval = null;
+        this.lastRunDurationMs = null;
+
         this.jobCanvas = document.getElementById('pointViz');
 
         // User-applied zoom/pan on top of the auto-fit-to-bounds view computed
@@ -153,6 +169,11 @@ export class Job {
         this.view = { scale: 1, panX: 0, panY: 0 };
 
         this.clickedFidBuffer = [];
+
+        // Set by transformPlacements() (fid-cal) and re-applied by
+        // recomputeDispensePattern() so an Advanced Settings change doesn't
+        // throw away a calibration that's already been done.
+        this.fidCalMatrix = null;
 
         this.setupCanvasInteractions();
     }
@@ -459,12 +480,13 @@ export class Job {
 
     }
 
-    // Imports a paste (+ optional mask, + optional board outline) layer from
-    // whatever was selected in the gerber file input - either a single zip
-    // (typical KiCad/JLCPCB/EasyEDA fab output bundle) or several loose gerber
-    // files - auto-detecting which file is which from the Gerber X2
-    // %TF.FileFunction% attribute (falling back to filename conventions for
-    // older exports that don't have it).
+    // Turns raw pad footprints (pastePads - the same shapes kept in
+    // this.padShapes for the pad-outline overlay) into dispense-point
+    // placements, using whatever Advanced Settings tab tuning is live right
+    // now (see gerberImport.js's getPasteDispenseSettings/
+    // setPasteDispenseSettings). Shared by loadGerberFiles() (first import)
+    // and recomputeDispensePattern() (re-running the same pads through new
+    // settings without re-importing the gerber), so the two can't drift.
     //
     // Pads are classified from their real aperture geometry: elongated pads get
     // a line of dots, large open pads (e.g. QFN thermal pads) get a grid, and
@@ -473,12 +495,72 @@ export class Job {
     // volume is scaled off a 30-degree-for-a-0402-pad baseline. See
     // gerberImport.js for the tunable thresholds.
     //
-    // Points are pushed in component order - grouped by refdes (from the
+    // Points are returned in component order - grouped by refdes (from the
     // paste layer's %TO.C% attributes, if the export included them) and
     // ordered by part type (resistors, then capacitors, then ICs, then
     // everything else) rather than a raster scan across the board - which is
     // also then the order placements dispense in during a run. A board
     // without those attributes falls back to the previous raster order.
+    buildPlacementsFromPadShapes(pastePads){
+        const taggedPads = tagTightPitchPads(pastePads);
+        const groups = groupPadsByComponent(taggedPads);
+
+        // Alternating +1/-1 per tight-pitch pad (proper graph 2-coloring, see
+        // computeAlternatingSigns), computed once up front, independent of
+        // group/traversal order - which direction planPadDispense() nudges
+        // that pad's single dot to stagger a row of closely spaced leads.
+        const alternatingSigns = computeAlternatingSigns(taggedPads);
+
+        const placements = [];
+        for (const group of groups) {
+            for (const pad of group.pads) {
+                const sign = pad.tightPitch ? (alternatingSigns.get(pad) ?? 0) : 0;
+
+                const dots = planPadDispense(pad, parseFloat(this.dispenseDegrees), sign);
+                for (const {dx, dy, dispenseDegrees} of dots){
+                    const point = new Point(pad.x + dx, pad.y + dy, 31.5, dispenseDegrees);
+                    point.refdes = group.refdes;
+                    point.componentType = group.type;
+                    placements.push(point);
+                }
+            }
+        }
+        return placements;
+    }
+
+    // Re-runs the currently loaded board's pads through buildPlacementsFromPadShapes()
+    // with whatever Advanced Settings are live right now, so tweaking a
+    // setting shows up immediately instead of needing another Import Gerber.
+    // Re-applies the existing fid-cal transform (if any) to the freshly
+    // rebuilt points so a calibration already done isn't lost - but per-pad
+    // enabled/disabled selections ARE reset, same as a fresh import, since a
+    // settings change can change how many dots a pad even has (no stable 1:1
+    // mapping from old dots to new ones to carry that flag across).
+    // Returns false (no-op) if there's no gerber-imported board loaded yet.
+    recomputeDispensePattern(){
+        if (!this.padShapes || this.padShapes.length === 0) return false;
+
+        this.placements = this.buildPlacementsFromPadShapes(this.padShapes);
+
+        if (this.fidCalMatrix) {
+            for (const point of this.placements) {
+                const [calX, calY] = applyToPoint(this.fidCalMatrix, [point.x, point.y]);
+                point.calX = calX;
+                point.calY = calY;
+            }
+        }
+
+        this.loadJobIntoPositionList();
+        this.drawJobToCanvas();
+        return true;
+    }
+
+    // Imports a paste (+ optional mask, + optional board outline) layer from
+    // whatever was selected in the gerber file input - either a single zip
+    // (typical KiCad/JLCPCB/EasyEDA fab output bundle) or several loose gerber
+    // files - auto-detecting which file is which from the Gerber X2
+    // %TF.FileFunction% attribute (falling back to filename conventions for
+    // older exports that don't have it).
     async loadGerberFiles(fileList){
         const {pastePads, maskFlashes, outline, warnings, drillHoles} = await importGerberSet(fileList);
 
@@ -492,32 +574,14 @@ export class Job {
         this.fiducials = [];
         this.expandedComponents = new Set();
         this.view = { scale: 1, panX: 0, panY: 0 };
+        // A previous board's fid cal has nothing to do with this new one's
+        // raw coordinates - don't let recomputeDispensePattern() apply it.
+        this.fidCalMatrix = null;
 
         this.boardOutline = outline;
         this.padShapes = pastePads;
 
-        const taggedPads = tagTightPitchPads(pastePads);
-        const groups = groupPadsByComponent(taggedPads);
-
-        // Alternating +1/-1 per tight-pitch pad (proper graph 2-coloring, see
-        // computeAlternatingSigns), computed once up front, independent of
-        // group/traversal order - which direction planPadDispense() nudges
-        // that pad's single dot to stagger a row of closely spaced leads.
-        const alternatingSigns = computeAlternatingSigns(taggedPads);
-
-        for (const group of groups) {
-            for (const pad of group.pads) {
-                const sign = pad.tightPitch ? (alternatingSigns.get(pad) ?? 0) : 0;
-
-                const dots = planPadDispense(pad, parseFloat(this.dispenseDegrees), sign);
-                for (const {dx, dy, dispenseDegrees} of dots){
-                    const point = new Point(pad.x + dx, pad.y + dy, 31.5, dispenseDegrees);
-                    point.refdes = group.refdes;
-                    point.componentType = group.type;
-                    this.placements.push(point);
-                }
-            }
-        }
+        this.placements = this.buildPlacementsFromPadShapes(pastePads);
 
         // Candidate fiducials: mask openings that don't correspond to a paste
         // pad, further narrowed by findFiducialCandidates() to drop drilled
@@ -844,9 +908,12 @@ export class Job {
     }
 
     // A collapsible single-component (e.g. "R12") sub-group: a checkbox that
-    // enables/disables all of that component's pads, and, when expanded, the
-    // individual pad rows (each with its own "paste this pad only" action -
-    // see createPositionElement - for retrying just one failed pad).
+    // enables/disables all of that component's pads, action buttons that
+    // mirror a single pad row's move/dispense/remove (but for every pad in
+    // the component at once - see moveToComponent/dispenseComponent/
+    // removeComponent), and, when expanded, the individual pad rows (each
+    // with its own "paste this pad only" action - see createPositionElement -
+    // for retrying just one failed pad).
     renderComponentGroup(container, refdes, points){
         const allEnabled = points.every(p => p.enabled !== false);
         const anyEnabled = points.some(p => p.enabled !== false);
@@ -859,6 +926,11 @@ export class Job {
             <input type="checkbox" class="group-enable-toggle" ${allEnabled ? 'checked' : ''}>
             <span class="group-label">${refdes}</span>
             <span class="group-count">${points.length} pad${points.length === 1 ? '' : 's'}</span>
+            <div class="group-actions">
+                <button class="move-btn" title="Jog to this component">☉</button>
+                <button class="dispense-btn" title="Paste this whole component">⤓</button>
+                <button class="remove-btn" title="Remove this whole component">X</button>
+            </div>
         `;
 
         const toggle = header.querySelector('.group-enable-toggle');
@@ -868,6 +940,29 @@ export class Job {
             for (const p of points) p.enabled = e.target.checked;
             this.loadJobIntoPositionList();
             this.drawJobToCanvas();
+        });
+
+        const moveBtn = header.querySelector('.move-btn');
+        moveBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.moveToComponent(points);
+        });
+
+        const dispenseBtn = header.querySelector('.dispense-btn');
+        dispenseBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            dispenseBtn.disabled = true;
+            try {
+                await this.dispenseComponent(points);
+            } finally {
+                dispenseBtn.disabled = false;
+            }
+        });
+
+        const removeBtn = header.querySelector('.remove-btn');
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.removeComponent(refdes);
         });
 
         header.addEventListener('click', () => {
@@ -1002,6 +1097,12 @@ export class Job {
             this.boardOutline = data.boardOutline || [];
             this.padShapes = data.padShapes || [];
             this.showPadOverlay = data.showPadOverlay || false;
+
+            // Restores the Advanced Settings tab's paste-dispense pattern
+            // tuning that produced this job's placements, if the file has it
+            // (older job files won't - setPasteDispenseSettings() leaves
+            // anything missing at its current/default value).
+            if (data.pasteDispenseSettings) setPasteDispenseSettings(data.pasteDispenseSettings);
             this.fiducials = (data.fiducials || []).map(f => {
                 const fid = new Fiducial(f.x, f.y, f.z, f.searchX, f.searchY);
                 fid.calX = f.calX;
@@ -1010,6 +1111,24 @@ export class Job {
                 fid.canvasY = f.canvasY;
                 return fid;
             });
+
+            // A saved job's placements already carry calX/calY from whatever
+            // fid-cal run produced them, but that calibration's matrix itself
+            // isn't in the file - only its already-applied result is. Without
+            // rebuilding fidCalMatrix here, it stays null (the constructor
+            // default), and the *next* recomputeDispensePattern() (e.g. from
+            // touching an Advanced Settings slider) rebuilds placements from
+            // padShapes with no matrix to reapply - silently dropping calX/
+            // calY on every point and sending the machine to raw, uncalibrated
+            // gerber coordinates instead of the calibrated ones. Rebuild it
+            // from the three fiducials' raw (x,y) and calibrated (calX,calY)
+            // positions, the same inputs transformPlacements() itself used.
+            this.fidCalMatrix = null;
+            if (this.fiducials.length === 3 && this.fiducials.every(f => f.calX != null && f.calY != null)) {
+                const origFids = this.fiducials.map(f => [f.x, f.y]);
+                const realFids = this.fiducials.map(f => [parseFloat(f.calX), parseFloat(f.calY)]);
+                this.fidCalMatrix = fromTriangles(origFids, realFids);
+            }
 
             this.dispenseDegrees = data.dispenseDegrees || 30;
             this.motionSpeed = data.motionSpeed || 35000;
@@ -1057,6 +1176,30 @@ export class Job {
 
             const togglePadsButton = document.getElementById('vizTogglePads');
             togglePadsButton?.classList.toggle('active', this.showPadOverlay);
+
+            // Reflect whatever paste-dispense settings ended up active (either
+            // restored above, or left at their current value) in the
+            // Advanced Settings tab's inputs.
+            const pasteSettingsUi = {
+                advElongatedAspectRatio: 'elongatedAspectRatio',
+                advElongatedMinLengthMm: 'elongatedMinLengthMm',
+                advMinLineWidthMm: 'minLineWidthMm',
+                advDotPitchMm: 'dotPitchMm',
+                advPadEdgeInsetMm: 'padEdgeInsetMm',
+                advElongatedVolumeMultiplier: 'elongatedVolumeMultiplier',
+                advPowerPadMinAreaMm2: 'powerPadMinAreaMm2',
+                advGridDotPitchMm: 'gridDotPitchMm',
+                advGridEdgeInsetMm: 'gridEdgeInsetMm',
+                advTightPitchGapMm: 'tightPitchGapMm',
+                advTightPitchMaxPadWidthMm: 'tightPitchMaxPadWidthMm',
+                advStaggerOffsetFraction: 'staggerOffsetFraction',
+                advTightPitchVolumeMultiplier: 'tightPitchVolumeMultiplier',
+            };
+            const pasteSettings = getPasteDispenseSettings();
+            for (const [elementId, key] of Object.entries(pasteSettingsUi)) {
+                const el = document.getElementById(elementId);
+                if (el) el.value = pasteSettings[key];
+            }
 
             // Update the UI position list
             this.loadJobIntoPositionList();
@@ -1254,10 +1397,10 @@ export class Job {
             `G0 Z${z}`,                                    // Move z down
             "G91",                                         // Relative mode
             "M106 P2 S{VACUUM}",                            // Pump on (speed substituted live at send time)
-            "G0 Z-.9",                                      // Come up .9mm
+            "G0 Z-.7",                                      // Come up .9mm
             "M906 B {MOTOR_CURRENT}",                       // Extruder current high (substituted live at send time)
             `G0 B${dispenseSign * dispenseDeg} F${this.extruderSpeed}`, // Extrude paste
-            "G0 Z.7",                                       // Come down .7mm
+            "G0 Z.4",                                       // Come down .7mm
         ];
 
         // Wiggle the tip up/down to help release paste stuck to the nozzle
@@ -1336,6 +1479,80 @@ export class Job {
         await this.lumen.serial.send(commands);
     }
 
+    // Re-dispenses every pad of one component (e.g. all of R12's pads), in
+    // order, outside of a full job run - the component-group equivalent of
+    // dispenseSinglePoint(). Each pad still goes through dispenseSinglePoint
+    // itself, so the isRunning guard and the exact per-pad gcode stay
+    // identical to the single-pad button.
+    async dispenseComponent(points){
+        for (const point of points) {
+            await this.dispenseSinglePoint(point);
+        }
+    }
+
+    // Jogs to the centroid of a component's pads (its calibrated position if
+    // fid-cal has run, else its raw import position) - the component-group
+    // equivalent of a single pad row's "move to" button, since a whole
+    // component has no single (x,y) of its own.
+    moveToComponent(points){
+        const xs = points.map(p => p.calX ?? p.x);
+        const ys = points.map(p => p.calY ?? p.y);
+        const centerX = xs.reduce((a, b) => a + b, 0) / xs.length;
+        const centerY = ys.reduce((a, b) => a + b, 0) / ys.length;
+
+        this.lumen.serial.send([
+            "G90",
+            `G0 Z${this.travelHeight}`,
+            `G0 X${centerX} Y${centerY}`
+        ]);
+    }
+
+    // Removes every pad belonging to one component from the job - the
+    // component-group equivalent of a single pad row's remove button.
+    removeComponent(refdes){
+        this.placements = this.placements.filter(p => p.refdes !== refdes);
+        this.loadJobIntoPositionList();
+        this.drawJobToCanvas();
+    }
+
+    // Backs the Job Positions list's "Select All"/"Select None" buttons -
+    // enables or disables every real placement (fiducials aren't part of a
+    // run, so they're left alone) in one shot instead of clicking through
+    // every type/component checkbox individually.
+    setAllPlacementsEnabled(enabled){
+        for (const p of this.placements) p.enabled = enabled;
+        this.loadJobIntoPositionList();
+        this.drawJobToCanvas();
+    }
+
+    // Starts the run timer and its live "Running: m:ss" display, ticking once
+    // a second. Call stopRunTimer() on every way a run can end - it clears
+    // the interval and freezes the display on the final elapsed time.
+    startRunTimer(){
+        this.runStartTime = Date.now();
+        clearInterval(this.runTimerInterval);
+
+        const el = document.getElementById('jobRunTime');
+        if (el) el.textContent = 'Running: 0:00';
+
+        this.runTimerInterval = setInterval(() => {
+            if (el) el.textContent = `Running: ${formatElapsed(Date.now() - this.runStartTime)}`;
+        }, 1000);
+    }
+
+    stopRunTimer(){
+        clearInterval(this.runTimerInterval);
+        this.runTimerInterval = null;
+
+        if (this.runStartTime == null) return;
+
+        this.lastRunDurationMs = Date.now() - this.runStartTime;
+        this.runStartTime = null;
+
+        const el = document.getElementById('jobRunTime');
+        if (el) el.textContent = `Last run: ${formatElapsed(this.lastRunDurationMs)}`;
+    }
+
     // Parks the head, kills both pumps, and drops the extruder current back down.
     // Shared by every way a job run can end (finished, cancelled via the toast) so
     // the board is always left in the same state instead of each path improvising.
@@ -1343,6 +1560,7 @@ export class Job {
         this.isRunning = false;
         this.toast.receivedInput = false;
         this.toast.hide();
+        this.stopRunTimer();
 
         await this.lumen.serial.send(["G90"]);
         await this.lumen.serial.send(["M906 B 200"]);
@@ -1361,6 +1579,7 @@ export class Job {
         this.toast.show("Running job. Close this to cancel.");
 
         this.isRunning = true;
+        this.startRunTimer();
 
         for(const command of commands){
 
@@ -1389,6 +1608,7 @@ export class Job {
                 this.isRunning = false;
                 this.toast.receivedInput = false;
                 this.toast.hide();
+                this.stopRunTimer();
                 return;
             }
 
@@ -1417,6 +1637,7 @@ export class Job {
             boardOutline: this.boardOutline,
             padShapes: this.padShapes,
             showPadOverlay: this.showPadOverlay,
+            pasteDispenseSettings: getPasteDispenseSettings(),
             fiducials: this.fiducials.map(f => ({
                 x: f.x,
                 y: f.y,
@@ -1455,6 +1676,11 @@ export class Job {
         ]
 
         const matrix = fromTriangles(origFids, realFids);
+
+        // Kept so recomputeDispensePattern() can re-apply this same
+        // calibration to a freshly rebuilt set of points (e.g. after an
+        // Advanced Settings change) without needing fid-cal run again.
+        this.fidCalMatrix = matrix;
 
         for (let point of this.placements) {
 

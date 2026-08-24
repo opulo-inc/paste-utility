@@ -6,6 +6,7 @@ import { onOpenCVReady } from './opencv-bridge.js';
 import { VideoManager } from './video.js';
 import { Job } from './job.js';
 import { Lumen } from './lumen.js'
+import { getPasteDispenseSettings, setPasteDispenseSettings, resetPasteDispenseSettings } from './gerberImport.js';
 
 let modal = new modalManager();
 let toast = new toastManager();
@@ -135,6 +136,89 @@ onOpenCVReady(cv => {
     jobInvertDispense.addEventListener('change', (e) => {
       console.log('Invert dispense changed:', e.target.checked);
       currentJob.invertDispense = e.target.checked;
+    });
+  }
+
+  // Basic/Advanced settings tab switcher - toggles which panel is visible
+  // and which tab button carries the .active style.
+  const settingsTabButtons = document.querySelectorAll('.settings-tab-btn');
+  settingsTabButtons.forEach(tabButton => {
+    tabButton.addEventListener('click', () => {
+      settingsTabButtons.forEach(btn => btn.classList.remove('active'));
+      tabButton.classList.add('active');
+
+      const targetPanelId = tabButton.dataset.tabPanel;
+      document.getElementById('basicSettingsPanel').style.display =
+        targetPanelId === 'basicSettingsPanel' ? '' : 'none';
+      document.getElementById('advancedSettingsPanel').style.display =
+        targetPanelId === 'advancedSettingsPanel' ? '' : 'none';
+    });
+  });
+
+  // Advanced paste-dispense settings (gerberImport.js's tunable constants,
+  // exposed via getPasteDispenseSettings/setPasteDispenseSettings) - maps
+  // each input's id to the settings key it controls, both for reading on
+  // change and for populating the inputs (initial load + Reset to Defaults).
+  const pasteSettingsInputIds = {
+    advElongatedAspectRatio: 'elongatedAspectRatio',
+    advElongatedMinLengthMm: 'elongatedMinLengthMm',
+    advMinLineWidthMm: 'minLineWidthMm',
+    advDotPitchMm: 'dotPitchMm',
+    advPadEdgeInsetMm: 'padEdgeInsetMm',
+    advElongatedVolumeMultiplier: 'elongatedVolumeMultiplier',
+    advPowerPadMinAreaMm2: 'powerPadMinAreaMm2',
+    advGridDotPitchMm: 'gridDotPitchMm',
+    advGridEdgeInsetMm: 'gridEdgeInsetMm',
+    advTightPitchGapMm: 'tightPitchGapMm',
+    advTightPitchMaxPadWidthMm: 'tightPitchMaxPadWidthMm',
+    advStaggerOffsetFraction: 'staggerOffsetFraction',
+    advTightPitchVolumeMultiplier: 'tightPitchVolumeMultiplier',
+  };
+
+  function refreshPasteSettingsInputs() {
+    const settings = getPasteDispenseSettings();
+    for (const [elementId, key] of Object.entries(pasteSettingsInputIds)) {
+      const el = document.getElementById(elementId);
+      if (el) el.value = settings[key];
+    }
+  }
+
+  refreshPasteSettingsInputs();
+
+  for (const [elementId, key] of Object.entries(pasteSettingsInputIds)) {
+    const el = document.getElementById(elementId);
+    if (!el) continue;
+    el.addEventListener('change', (e) => {
+      setPasteDispenseSettings({[key]: Number(e.target.value)});
+      // Re-run the board that's already loaded through the new settings
+      // immediately, instead of making you re-import the gerber to see the
+      // effect. No-ops (returns false) if nothing's been gerber-imported yet.
+      currentJob.recomputeDispensePattern();
+    });
+  }
+
+  const resetAdvancedSettingsButton = document.getElementById('resetAdvancedSettings');
+  if (resetAdvancedSettingsButton) {
+    resetAdvancedSettingsButton.addEventListener('click', () => {
+      resetPasteDispenseSettings();
+      refreshPasteSettingsInputs();
+      currentJob.recomputeDispensePattern();
+    });
+  }
+
+  // Select All / Select None for the whole Job Positions list, instead of
+  // clicking through every type/component checkbox individually.
+  const selectAllComponentsButton = document.getElementById('selectAllComponents');
+  if (selectAllComponentsButton) {
+    selectAllComponentsButton.addEventListener('click', () => {
+      currentJob.setAllPlacementsEnabled(true);
+    });
+  }
+
+  const selectNoneComponentsButton = document.getElementById('selectNoneComponents');
+  if (selectNoneComponentsButton) {
+    selectNoneComponentsButton.addEventListener('click', () => {
+      currentJob.setAllPlacementsEnabled(false);
     });
   }
 
