@@ -103,7 +103,7 @@ export let STAGGER_OFFSET_FRACTION = 0.85
 // dialing volume down (or up) on just that pad population without touching
 // every other pad's dispense math. 1.0 = no change from the normal/elongated
 // volume.
-export let TIGHT_PITCH_VOLUME_MULTIPLIER = 1.0
+export let TIGHT_PITCH_VOLUME_MULTIPLIER = 0.2
 
 // Pads within this Y distance of each other are considered the same "row"
 // when sorting into a deterministic raster (bottom-to-top, left-to-right).
@@ -137,11 +137,14 @@ export const FIDUCIAL_DRILL_MATCH_TOLERANCE_MM = 0.08
 // is essentially always some other exposed-but-unpasted pad - a ground/
 // thermal tab, shield land, test point, mounting pad, etc - not a fiducial,
 // even after it's already passed the drill/repeating-array filters above.
-// Wide enough around the documented 1mm to tolerate boards that don't use
-// exactly that size. See isFiducialCandidateShape() below for the
-// accompanying round-only shape check.
-export const FIDUCIAL_CANDIDATE_MIN_DIAMETER_MM = 0.4
-export const FIDUCIAL_CANDIDATE_MAX_DIAMETER_MM = 2.0
+// Wide around the documented 1mm to tolerate boards that don't use exactly
+// that size - a real board's fiducials measured right at the original 2.0mm
+// upper bound, meaning any board with even slightly larger ones would have
+// had real fiducials rejected here, so this leaves much more headroom on
+// both ends now. See isFiducialCandidateShape() below for the accompanying
+// round-only shape check.
+export const FIDUCIAL_CANDIDATE_MIN_DIAMETER_MM = 0.25
+export const FIDUCIAL_CANDIDATE_MAX_DIAMETER_MM = 3.0
 
 // Candidates this close together (same row/column) are grouped when checking
 // for a repeating array (see excludeRepeatingArrayCandidates()).

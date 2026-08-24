@@ -15,9 +15,8 @@ export class VideoManager {
     // reads this live off the VideoManager instance rather than a hardcoded
     // constant, so retuning it (see the Camera Scale input next to the video
     // feed) takes effect immediately, with no reload, on a different camera/
-    // lens/working height. 50px/mm is this app's original hardcoded
-    // assumption, kept as the default.
-    this.pxPerMm = 50;
+    // lens/working height.
+    this.pxPerMm = 42;
 
     // canvas object that we write to
     this.canvas = null;
@@ -162,13 +161,17 @@ export class VideoManager {
         // minRadius/maxRadius used to be a nearly unbounded 1-50px, which let
         // in any circular-ish blob from a stray pixel up to a huge smudge -
         // silkscreen text loops, round pads/vias, logos, etc. Searching a
-        // band around the expected radius instead (with generous +/-40%
-        // margin for focus/height variance) rejects most of those before
-        // they can ever be considered. Computed fresh every call (not cached)
-        // since pxPerMm can be retuned live from the Camera Scale input.
+        // band around the expected radius instead rejects most of those
+        // before they can ever be considered. +/-55% margin (loosened from an
+        // initial +/-40%, which was cutting out real fiducials too along with
+        // the false positives - real-world focus/lighting/reflectivity noise
+        // in the Hough radius estimate, plus how far off pxPerMm itself might
+        // be from this camera's true value, both need more headroom than
+        // that). Computed fresh every call (not cached) since pxPerMm can be
+        // retuned live from the Camera Scale input.
         const expectedRadiusPx = (FIDUCIAL_DIAMETER_MM / 2) * this.pxPerMm;
-        const minRadius = Math.max(1, Math.round(expectedRadiusPx * 0.6));
-        const maxRadius = Math.max(minRadius + 1, Math.round(expectedRadiusPx * 1.4));
+        const minRadius = Math.max(1, Math.round(expectedRadiusPx * 0.45));
+        const maxRadius = Math.max(minRadius + 1, Math.round(expectedRadiusPx * 1.55));
 
         this.cv.HoughCircles(
             gray,
@@ -178,11 +181,15 @@ export class VideoManager {
             gray.rows / 8,
             50,
             // Accumulator threshold - how strong a circle's edge evidence has
-            // to be to count as a detection. Raised from 30 to require more
-            // confident evidence, on top of the tighter radius band below,
-            // for further rejecting weak/partial circular shapes (silkscreen
-            // text, etc.) that would otherwise still sneak through.
-            40,
+            // to be to count as a detection. Was raised 30->40 alongside the
+            // radius band above, but that combination was too aggressive -
+            // real fiducials were sometimes getting rejected too, not just
+            // the silkscreen/pad false positives it was meant to catch.
+            // Split the difference: a smaller bump than 40, leaning on the
+            // radius band (a harder, more reliable constraint since it's
+            // physically grounded) to do most of the false-positive
+            // rejection instead.
+            33,
             minRadius,
             maxRadius
         );
