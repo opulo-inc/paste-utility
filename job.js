@@ -540,16 +540,31 @@ export class Job {
     recomputeDispensePattern(){
         if (!this.padShapes || this.padShapes.length === 0) return false;
 
-        // All placements share one Z - performBoardCalibration() touches the
-        // board once and stamps that height onto every point - so grabbing it
-        // off any existing placement before rebuilding preserves it.
+        // Manually captured points (Capture Position button -> addPoint())
+        // aren't derived from padShapes at all, so buildPlacementsFromPadShapes()
+        // has no way to regenerate them - replacing this.placements outright
+        // would silently delete them. They're the only placements that ever
+        // have a null refdes (every gerber-derived point gets one, even a
+        // synthetic "Part N" for a board with no %TO.C% attributes - see
+        // groupPadsByComponent), so that's a reliable way to pull them out
+        // before the rebuild and carry them forward unchanged - their x/y/z
+        // are already real captured machine coordinates, not gerber-space
+        // ones, so they must NOT go through the Z-restore or fid-cal-matrix
+        // steps below (those only make sense for the freshly rebuilt
+        // gerber-derived points).
+        const gerberPoints = this.placements.filter(p => p.refdes != null);
+        const manualPoints = this.placements.filter(p => p.refdes == null);
+
+        // All gerber-derived placements share one Z - performBoardCalibration()
+        // touches the board once and stamps that height onto every point - so
+        // grabbing it off any existing one before rebuilding preserves it.
         // buildPlacementsFromPadShapes() stamps its own points with a
         // hardcoded default Z (pre-calibration placeholder height), which
-        // would otherwise silently override a real board calibration on
-        // every settings tweak. null when there's nothing loaded yet (a
-        // fresh gerber import, before board calibration has run) - leave
+        // would otherwise silently override a real board calibration on every
+        // settings tweak. null when there's nothing loaded yet (a fresh
+        // gerber import, before board calibration has run) - leave
         // buildPlacementsFromPadShapes()'s default alone in that case.
-        const priorZ = this.placements.length ? this.placements[0].z : null;
+        const priorZ = gerberPoints.length ? gerberPoints[0].z : null;
 
         this.placements = this.buildPlacementsFromPadShapes(this.padShapes);
 
@@ -564,6 +579,8 @@ export class Job {
                 point.calY = calY;
             }
         }
+
+        this.placements.push(...manualPoints);
 
         this.loadJobIntoPositionList();
         this.drawJobToCanvas();

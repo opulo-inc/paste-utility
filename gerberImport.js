@@ -835,7 +835,12 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
         // Math.max(2, ...)) placed them only ~0.1-0.3mm apart: well inside
         // each dot's own drawn radius, so they rendered right on top of each
         // other instead of as a real line pattern.
-        const dotCount = usable >= DOT_PITCH_MM ? Math.round(usable / DOT_PITCH_MM) + 1 : 1
+        // DOT_PITCH_MM > 0 guards against a zero/negative Advanced Settings
+        // value (the Dot Pitch input's own min="0.1" only constrains the
+        // spinner arrows, not a manually typed value) - dividing by it would
+        // otherwise produce an Infinity/negative dotCount and the loop below
+        // would never terminate, freezing the tab.
+        const dotCount = DOT_PITCH_MM > 0 && usable >= DOT_PITCH_MM ? Math.round(usable / DOT_PITCH_MM) + 1 : 1
         const spacing = dotCount > 1 ? usable / (dotCount - 1) : 0
 
         points = []
@@ -861,8 +866,11 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
         // minimum of 2 rows/cols there (the old Math.max(2, ...)) placed
         // that axis's two dot rows/columns only ~0.1mm apart - on top of
         // each other instead of a real grid.
-        const cols = usableX >= GRID_DOT_PITCH_MM ? Math.round(usableX / GRID_DOT_PITCH_MM) + 1 : 1
-        const rows = usableY >= GRID_DOT_PITCH_MM ? Math.round(usableY / GRID_DOT_PITCH_MM) + 1 : 1
+        // GRID_DOT_PITCH_MM > 0 guards against a zero/negative Advanced
+        // Settings value the same way DOT_PITCH_MM is guarded above - see
+        // that comment.
+        const cols = GRID_DOT_PITCH_MM > 0 && usableX >= GRID_DOT_PITCH_MM ? Math.round(usableX / GRID_DOT_PITCH_MM) + 1 : 1
+        const rows = GRID_DOT_PITCH_MM > 0 && usableY >= GRID_DOT_PITCH_MM ? Math.round(usableY / GRID_DOT_PITCH_MM) + 1 : 1
         const stepX = cols > 1 ? usableX / (cols - 1) : 0
         const stepY = rows > 1 ? usableY / (rows - 1) : 0
         const dotCount = cols * rows
