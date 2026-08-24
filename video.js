@@ -286,7 +286,12 @@ export class VideoManager {
         gray.delete();
         circles.delete();
 
-        this.addReticle(this.cvFrame);
+        // addReticle() returns a new clone rather than drawing in place, so
+        // the old (reticle-less) this.cvFrame needs deleting once it's
+        // replaced - otherwise this leaks a Mat every call.
+        const cvFrameWithReticle = this.addReticle(this.cvFrame);
+        this.cvFrame.delete();
+        this.cvFrame = cvFrameWithReticle;
 
         return bestCircle;
 
@@ -326,9 +331,18 @@ export class VideoManager {
 
         this.loadNewFrame();
 
-        this.frame = this.addReticle(this.frame);
-
-        this.showFrame(this.frame);
+        // Reticle is for on-screen display only - draw it onto a disposable
+        // clone rather than reassigning this.frame to the reticle-drawn
+        // version. this.frame is the canonical raw frame CVdetectCircle()
+        // clones from for actual fiducial detection; overwriting it here
+        // used to bake the reticle's own bright crosshair permanently into
+        // that frame - right in the center, exactly where a fiducial gets
+        // centered to be detected, interfering with (or fully occluding) the
+        // real edge Hough needs to trace. displayFrame is deleted right
+        // after use so this doesn't leak a Mat every tick at ~60Hz.
+        const displayFrame = this.addReticle(this.frame);
+        this.showFrame(displayFrame);
+        displayFrame.delete();
     }
 
     // set next frame to fire
