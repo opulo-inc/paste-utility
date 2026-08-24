@@ -77,30 +77,49 @@ onOpenCVReady(cv => {
     });
   }
 
-  // Scroll-to-zoom on the camera feed drives the camera's own hardware/
-  // driver zoom (see VideoManager.zoomBy()/getZoomCapabilities()) rather
-  // than a CSS scale on the canvas - a real zoom changes what the sensor
-  // actually reads out, so it's genuinely more detail for fiducial detection
-  // to work with too, not just a bigger view of the same pixels. Not every
-  // camera exposes a zoom control; if this one doesn't, zoomBy() resolves
-  // false and a single console warning explains why scrolling does nothing,
-  // rather than silently going nowhere or faking a zoom that wouldn't help
-  // detection anyway. zoomInFlight drops ticks that land while the previous
-  // one's still being applied, so a fast scroll gesture doesn't pile up a
-  // queue of stale, overlapping applyConstraints() calls.
+  // Scroll-to-zoom on the camera feed. Prefers the camera's own hardware/
+  // driver zoom (see VideoManager.zoomBy()/getZoomCapabilities()) when the
+  // device exposes one - a real zoom changes what the sensor actually reads
+  // out, so it's genuinely more detail for fiducial detection to work with
+  // too, not just a bigger view of the same pixels. Most webcams don't
+  // support it though (confirmed on the camera this was tested with), so
+  // falls back to a plain CSS scale on the canvas (clipped by its
+  // .video-feed-viewport wrapper) the first time zoomBy() reports it can't -
+  // a display-only zoom that has no effect on fiducial detection or jog
+  // math, but at least does *something* visually on hardware that can't
+  // really zoom.
+  let cameraZoom = 1;
+  const CAMERA_ZOOM_MIN = 1;
+  const CAMERA_ZOOM_MAX = 4;
+  const CAMERA_ZOOM_STEP = 0.1;
+
+  function applyCssZoom(direction) {
+    cameraZoom = Math.min(CAMERA_ZOOM_MAX, Math.max(CAMERA_ZOOM_MIN, cameraZoom + direction * CAMERA_ZOOM_STEP));
+    canvas.style.transform = `scale(${cameraZoom.toFixed(2)})`;
+  }
+
+  // null = not yet known which kind this camera gets; true/false once
+  // zoomBy() has actually told us. Remembered so every scroll after the
+  // first doesn't re-attempt (and wait on) a hardware zoom call already
+  // known to fail.
+  let hardwareZoomSupported = null;
   let zoomInFlight = false;
-  let warnedZoomUnsupported = false;
+
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    if (zoomInFlight) return;
 
     const direction = e.deltaY < 0 ? 1 : -1;
+
+    if (hardwareZoomSupported === false) {
+      applyCssZoom(direction);
+      return;
+    }
+
+    if (zoomInFlight) return;
     zoomInFlight = true;
     videoManager.zoomBy(direction).then(applied => {
-      if (!applied && !warnedZoomUnsupported) {
-        console.warn('This camera does not expose a hardware zoom control.');
-        warnedZoomUnsupported = true;
-      }
+      hardwareZoomSupported = applied;
+      if (!applied) applyCssZoom(direction);
     }).finally(() => {
       zoomInFlight = false;
     });

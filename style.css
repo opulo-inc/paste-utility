@@ -880,18 +880,29 @@ select:focus {
   box-shadow: var(--shadow);
 }
 
-#opencv-canvas {
+/* Clips the canvas's scroll-to-zoom transform (see main.js's CSS-zoom
+   fallback, used when a camera doesn't support real hardware zoom) to a
+   fixed frame so zooming in doesn't spill the enlarged image out over the
+   rest of the page - the border/shadow/background that used to live on
+   #opencv-canvas itself live here instead, so they stay put while the
+   canvas inside scales. */
+.video-feed-viewport {
   width: 480px;
   height: 360px;
+  overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
   background-color: #000;
-  object-fit: contain;
   box-shadow: var(--shadow);
-  /* Scroll-to-zoom (see main.js) drives the camera's own hardware zoom
-     rather than a CSS transform on this element, so there's nothing here to
-     clip/scale - just a hint that scrolling over the feed does something. */
   cursor: zoom-in;
+}
+
+#opencv-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  transform-origin: center center;
 }
 
 .camera-scale-row {
@@ -909,7 +920,14 @@ select:focus {
 }
 
 .camera-scale-row input[type="range"] {
+  /* Overrides the page's global input[type="range"] rule (used for the
+     vertical jog-distance slider), which otherwise makes this one render
+     tall and vertical too - see the same override on .setting-item
+     input[type="range"] for the Air Assist slider. */
+  writing-mode: horizontal-tb;
   width: 160px;
+  height: auto;
+  margin: 0;
 }
 
 .opencv-controls {
