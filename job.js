@@ -540,7 +540,22 @@ export class Job {
     recomputeDispensePattern(){
         if (!this.padShapes || this.padShapes.length === 0) return false;
 
+        // All placements share one Z - performBoardCalibration() touches the
+        // board once and stamps that height onto every point - so grabbing it
+        // off any existing placement before rebuilding preserves it.
+        // buildPlacementsFromPadShapes() stamps its own points with a
+        // hardcoded default Z (pre-calibration placeholder height), which
+        // would otherwise silently override a real board calibration on
+        // every settings tweak. null when there's nothing loaded yet (a
+        // fresh gerber import, before board calibration has run) - leave
+        // buildPlacementsFromPadShapes()'s default alone in that case.
+        const priorZ = this.placements.length ? this.placements[0].z : null;
+
         this.placements = this.buildPlacementsFromPadShapes(this.padShapes);
+
+        if (priorZ != null) {
+            for (const point of this.placements) point.z = priorZ;
+        }
 
         if (this.fidCalMatrix) {
             for (const point of this.placements) {
