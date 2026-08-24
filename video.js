@@ -18,6 +18,23 @@ export class VideoManager {
     // lens/working height.
     this.pxPerMm = 42;
 
+    // HoughCircles' accumulator threshold (param2) - how strong a circle's
+    // edge evidence has to be to count as a fiducial detection. Lower is more
+    // permissive (catches more real fiducials in poor lighting/focus, but
+    // also more silkscreen/pad false positives); higher is stricter (rejects
+    // more false positives, but can start missing real ones too). Exposed
+    // live as the Fiducial Confidence slider under the video feed, read
+    // fresh by CVdetectCircle() on every call, since a single hardcoded
+    // value doesn't hold up across every camera/board/lighting setup.
+    this.fiducialConfidence = 33;
+
+    // The active getUserMedia video track, so zoomBy() below can drive the
+    // camera's own hardware/driver zoom (when the device exposes one) rather
+    // than just visually scaling the canvas - a real zoom changes what the
+    // sensor actually reads out, so CVdetectCircle() sees more detail too,
+    // not just a blown-up version of the same pixels.
+    this.videoTrack = null;
+
     // canvas object that we write to
     this.canvas = null;
 
@@ -80,6 +97,8 @@ export class VideoManager {
         }
       });
 
+      this.videoTrack = stream.getVideoTracks()[0] || null;
+
       this.video = document.createElement('video');
       this.video.srcObject = stream;
       this.video.setAttribute('playsinline', true);
@@ -100,7 +119,47 @@ export class VideoManager {
 
       this.running = true;
       this.videoTick();
-    
+
+  }
+
+  // The device's zoom range/step, or null if this camera/browser doesn't
+  // expose a hardware zoom control at all (common on cheap webcams - there's
+  // no visual fallback for that case by design, see zoomBy()).
+  getZoomCapabilities() {
+    if (!this.videoTrack || typeof this.videoTrack.getCapabilities !== 'function') return null;
+    const caps = this.videoTrack.getCapabilities();
+    return caps && caps.zoom ? caps.zoom : null;
+  }
+
+  // Steps the camera's real hardware/driver zoom in (direction > 0) or out
+  // (direction < 0), by a fraction of this device's own reported zoom range
+  // - device zoom ranges/units vary a lot (e.g. one camera's 100-400 vs.
+  // another's 1-4), so a fixed step wouldn't feel consistent across cameras
+  // the way a percentage of each one's own range does. Snapped to the
+  // device's own step so a value it doesn't accept isn't sent. Returns
+  // whether it actually applied (false when this camera has no zoom
+  // capability, or the constraint gets rejected) so the caller can let the
+  // user know rather than failing silently.
+  async zoomBy(direction) {
+    const zoomCaps = this.getZoomCapabilities();
+    if (!zoomCaps) return false;
+
+    const settings = this.videoTrack.getSettings();
+    const current = settings.zoom ?? zoomCaps.min;
+    const range = zoomCaps.max - zoomCaps.min;
+    const step = zoomCaps.step || (range * 0.05);
+
+    let next = current + direction * step;
+    next = Math.min(zoomCaps.max, Math.max(zoomCaps.min, next));
+    if (zoomCaps.step) next = Math.round(next / zoomCaps.step) * zoomCaps.step;
+
+    try {
+      await this.videoTrack.applyConstraints({ advanced: [{ zoom: next }] });
+      return true;
+    } catch (err) {
+      console.warn('Camera zoom failed:', err);
+      return false;
+    }
   }
 
   addReticle(frame){
@@ -181,15 +240,11 @@ export class VideoManager {
             gray.rows / 8,
             50,
             // Accumulator threshold - how strong a circle's edge evidence has
-            // to be to count as a detection. Was raised 30->40 alongside the
-            // radius band above, but that combination was too aggressive -
-            // real fiducials were sometimes getting rejected too, not just
-            // the silkscreen/pad false positives it was meant to catch.
-            // Split the difference: a smaller bump than 40, leaning on the
-            // radius band (a harder, more reliable constraint since it's
-            // physically grounded) to do most of the false-positive
-            // rejection instead.
-            33,
+            // to be to count as a detection. Live off this.fiducialConfidence
+            // (see the Fiducial Confidence slider under the video feed)
+            // rather than a single hardcoded value - no one number holds up
+            // across every camera/board/lighting combination.
+            this.fiducialConfidence,
             minRadius,
             maxRadius
         );
@@ -332,6 +387,8 @@ export class VideoManager {
       this.video.remove();
       this.video = null;
     }
+
+    this.videoTrack = null;
 
     if (this.src) {
       this.src.delete();

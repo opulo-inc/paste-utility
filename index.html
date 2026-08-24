@@ -257,12 +257,14 @@
 
     <div id="rightColumn">
       <div class="video-feed">
-        <div class="video-feed-viewport">
-          <canvas id="opencv-canvas"></canvas>
-        </div>
+        <canvas id="opencv-canvas"></canvas>
         <div class="camera-scale-row">
           <label for="cameraPxPerMm" title="How many camera pixels correspond to 1mm on the board at this camera's current working distance/zoom - used to scale fiducial jogs and size fiducial detection. Retune this if you swap cameras, lenses, or focus height; it takes effect immediately.">Camera Scale (px/mm):</label>
           <input type="number" id="cameraPxPerMm" min="1" step="1" value="42" />
+        </div>
+        <div class="camera-scale-row">
+          <label for="fiducialConfidence" title="How strong a circle's edge evidence has to be to count as a fiducial detection. Lower catches more real fiducials in poor lighting/focus but lets more false positives (silkscreen, pads) through too; higher is the reverse.">Fiducial Confidence: <span id="fiducialConfidenceValue">33</span></label>
+          <input type="range" id="fiducialConfidence" min="10" max="80" step="1" value="33" />
         </div>
       </div>
 

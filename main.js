@@ -59,20 +59,51 @@ onOpenCVReady(cv => {
     });
   }
 
-  // Scroll-to-zoom on the camera feed - a pure display magnification (CSS
-  // transform on the canvas element, clipped by its .video-feed-viewport
-  // wrapper) so it's easier to see what you're jogging onto. Doesn't touch
-  // the underlying frame pixels CVdetectCircle()/jogToFiducial() work from,
-  // so it has no effect on fiducial detection or jog math.
-  let cameraZoom = 1;
-  const CAMERA_ZOOM_MIN = 1;
-  const CAMERA_ZOOM_MAX = 4;
-  const CAMERA_ZOOM_STEP = 0.1;
+  // Fiducial Confidence - HoughCircles' accumulator threshold
+  // (videoManager.fiducialConfidence), read live by CVdetectCircle() on
+  // every call. Lower catches more real fiducials in poor lighting/focus but
+  // lets more false positives (silkscreen, pads) through too; higher is the
+  // reverse - tune to whatever this camera/board/lighting needs instead of
+  // living with a single hardcoded compromise.
+  const fiducialConfidence = document.getElementById('fiducialConfidence');
+  const fiducialConfidenceValue = document.getElementById('fiducialConfidenceValue');
+  if (fiducialConfidence) {
+    fiducialConfidence.value = videoManager.fiducialConfidence;
+    if (fiducialConfidenceValue) fiducialConfidenceValue.textContent = videoManager.fiducialConfidence;
+    fiducialConfidence.addEventListener('input', (e) => {
+      const value = Number(e.target.value);
+      videoManager.fiducialConfidence = value;
+      if (fiducialConfidenceValue) fiducialConfidenceValue.textContent = value;
+    });
+  }
+
+  // Scroll-to-zoom on the camera feed drives the camera's own hardware/
+  // driver zoom (see VideoManager.zoomBy()/getZoomCapabilities()) rather
+  // than a CSS scale on the canvas - a real zoom changes what the sensor
+  // actually reads out, so it's genuinely more detail for fiducial detection
+  // to work with too, not just a bigger view of the same pixels. Not every
+  // camera exposes a zoom control; if this one doesn't, zoomBy() resolves
+  // false and a single console warning explains why scrolling does nothing,
+  // rather than silently going nowhere or faking a zoom that wouldn't help
+  // detection anyway. zoomInFlight drops ticks that land while the previous
+  // one's still being applied, so a fast scroll gesture doesn't pile up a
+  // queue of stale, overlapping applyConstraints() calls.
+  let zoomInFlight = false;
+  let warnedZoomUnsupported = false;
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (zoomInFlight) return;
+
     const direction = e.deltaY < 0 ? 1 : -1;
-    cameraZoom = Math.min(CAMERA_ZOOM_MAX, Math.max(CAMERA_ZOOM_MIN, cameraZoom + direction * CAMERA_ZOOM_STEP));
-    canvas.style.transform = `scale(${cameraZoom.toFixed(2)})`;
+    zoomInFlight = true;
+    videoManager.zoomBy(direction).then(applied => {
+      if (!applied && !warnedZoomUnsupported) {
+        console.warn('This camera does not expose a hardware zoom control.');
+        warnedZoomUnsupported = true;
+      }
+    }).finally(() => {
+      zoomInFlight = false;
+    });
   }, { passive: false });
 
   // job stuff
