@@ -1,20 +1,23 @@
-// A LumenPnP fiducial is documented as 1mm in diameter (help.html), and
-// lumen.js's jogToFiducial() already assumes 1 camera pixel = 0.02mm at this
-// camera's working distance (its own scalingFactor, used to convert a
-// detected circle's pixel offset into a jog distance) - i.e. 50px/mm, so a
-// real fiducial should read as ~25px in radius on screen. HoughCircles' own
-// minRadius/maxRadius used to be a nearly unbounded 1-50px, which let in any
-// circular-ish blob from a stray pixel up to a 2mm-radius smudge - silkscreen
-// text loops, round pads/vias, logos, etc. Constraining the search to a band
-// around that expected ~25px (generous enough for camera height/focus/board
-// variance) rejects most of those before they can ever be considered.
-const FIDUCIAL_HOUGH_MIN_RADIUS_PX = 15
-const FIDUCIAL_HOUGH_MAX_RADIUS_PX = 35
+// A LumenPnP fiducial is documented as 1mm in diameter (help.html) - used
+// below to size the HoughCircles search band off the live pxPerMm value.
+const FIDUCIAL_DIAMETER_MM = 1;
 
 export class VideoManager {
   constructor(cv) {
     this.cv = cv;
     this.video = null;
+
+    // How many camera pixels correspond to 1mm on the board, at this
+    // camera's working distance/zoom. Everything that has to translate
+    // between on-screen pixels and real board mm - lumen.js's
+    // jogToFiducial() (converts a detected circle's pixel offset into a jog
+    // distance) and CVdetectCircle() below (sizes its fiducial search band) -
+    // reads this live off the VideoManager instance rather than a hardcoded
+    // constant, so retuning it (see the Camera Scale input next to the video
+    // feed) takes effect immediately, with no reload, on a different camera/
+    // lens/working height. 50px/mm is this app's original hardcoded
+    // assumption, kept as the default.
+    this.pxPerMm = 50;
 
     // canvas object that we write to
     this.canvas = null;
@@ -153,7 +156,20 @@ export class VideoManager {
         this.cv.cvtColor(this.cvFrame, gray, this.cv.COLOR_RGBA2GRAY);
         this.cv.GaussianBlur(gray, gray, new this.cv.Size(9, 9), 2, 2);
         let circles = new this.cv.Mat();
-        
+
+        // A real fiducial should read as FIDUCIAL_DIAMETER_MM's worth of
+        // radius in pixels at this camera's current pxPerMm. HoughCircles'
+        // minRadius/maxRadius used to be a nearly unbounded 1-50px, which let
+        // in any circular-ish blob from a stray pixel up to a huge smudge -
+        // silkscreen text loops, round pads/vias, logos, etc. Searching a
+        // band around the expected radius instead (with generous +/-40%
+        // margin for focus/height variance) rejects most of those before
+        // they can ever be considered. Computed fresh every call (not cached)
+        // since pxPerMm can be retuned live from the Camera Scale input.
+        const expectedRadiusPx = (FIDUCIAL_DIAMETER_MM / 2) * this.pxPerMm;
+        const minRadius = Math.max(1, Math.round(expectedRadiusPx * 0.6));
+        const maxRadius = Math.max(minRadius + 1, Math.round(expectedRadiusPx * 1.4));
+
         this.cv.HoughCircles(
             gray,
             circles,
@@ -167,8 +183,8 @@ export class VideoManager {
             // for further rejecting weak/partial circular shapes (silkscreen
             // text, etc.) that would otherwise still sneak through.
             40,
-            FIDUCIAL_HOUGH_MIN_RADIUS_PX,
-            FIDUCIAL_HOUGH_MAX_RADIUS_PX
+            minRadius,
+            maxRadius
         );
 
         let bestCircle = null;

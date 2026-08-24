@@ -257,7 +257,13 @@
 
     <div id="rightColumn">
       <div class="video-feed">
-        <canvas id="opencv-canvas"></canvas>
+        <div class="video-feed-viewport">
+          <canvas id="opencv-canvas"></canvas>
+        </div>
+        <div class="camera-scale-row">
+          <label for="cameraPxPerMm" title="How many camera pixels correspond to 1mm on the board at this camera's current working distance/zoom - used to scale fiducial jogs and size fiducial detection. Retune this if you swap cameras, lenses, or focus height; it takes effect immediately.">Camera Scale (px/mm):</label>
+          <input type="number" id="cameraPxPerMm" min="1" step="1" value="50" />
+        </div>
       </div>
 
       <div class="control-row">

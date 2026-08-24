@@ -67,9 +67,13 @@ export class Lumen {
             const offsetX = x_px - centerX;
             const offsetY = -(y_px - centerY);  // Invert Y coordinate
         
-            const scalingFactor = 0.02;
-            const scaledOffsetX = offsetX * scalingFactor;
-            const scaledOffsetY = offsetY * scalingFactor;
+            // mm per pixel is the inverse of the camera's live pxPerMm (see
+            // VideoManager) - read fresh every call so retuning the Camera
+            // Scale input takes effect on the very next jog, no reload
+            // needed.
+            const mmPerPixel = 1 / this.video.pxPerMm;
+            const scaledOffsetX = offsetX * mmPerPixel;
+            const scaledOffsetY = offsetY * mmPerPixel;
         
             // Send jog commands using relative positioning
             await this.serial.goToRelative(scaledOffsetX.toFixed(1), scaledOffsetY.toFixed(1));

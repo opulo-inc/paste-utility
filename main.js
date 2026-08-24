@@ -46,6 +46,35 @@ onOpenCVReady(cv => {
     }
   });
 
+  // Camera Scale (px/mm) - lets a different camera/lens/working height be
+  // retuned without touching code. videoManager.pxPerMm is read live by
+  // both jogToFiducial() (lumen.js) and CVdetectCircle() (video.js), so this
+  // takes effect on the very next jog/detection, no reload needed.
+  const cameraPxPerMm = document.getElementById('cameraPxPerMm');
+  if (cameraPxPerMm) {
+    cameraPxPerMm.value = videoManager.pxPerMm;
+    cameraPxPerMm.addEventListener('change', (e) => {
+      const value = Number(e.target.value);
+      if (value > 0) videoManager.pxPerMm = value;
+    });
+  }
+
+  // Scroll-to-zoom on the camera feed - a pure display magnification (CSS
+  // transform on the canvas element, clipped by its .video-feed-viewport
+  // wrapper) so it's easier to see what you're jogging onto. Doesn't touch
+  // the underlying frame pixels CVdetectCircle()/jogToFiducial() work from,
+  // so it has no effect on fiducial detection or jog math.
+  let cameraZoom = 1;
+  const CAMERA_ZOOM_MIN = 1;
+  const CAMERA_ZOOM_MAX = 4;
+  const CAMERA_ZOOM_STEP = 0.1;
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const direction = e.deltaY < 0 ? 1 : -1;
+    cameraZoom = Math.min(CAMERA_ZOOM_MAX, Math.max(CAMERA_ZOOM_MIN, cameraZoom + direction * CAMERA_ZOOM_STEP));
+    canvas.style.transform = `scale(${cameraZoom.toFixed(2)})`;
+  }, { passive: false });
+
   // job stuff
   const importJobButton = document.getElementById('importJob');
   const jobFileInput = document.getElementById('jobFile');
