@@ -19,8 +19,31 @@
 </head>
 
 <body>
+  <div id="hardwareGate">
+    <div class="hardware-gate-card">
+      <img src="public/lumen-icon.png">
+      <h2>Which paste extruder are you running?</h2>
+      <p>Pick your hardware version to continue - you can change this later from the dropdown at the top of the page.</p>
+      <div class="hardware-gate-options">
+        <button type="button" class="hardware-gate-option" data-hardware-version="v1-beta">
+          <span class="hardware-gate-option-title">Paste Extruder V1 Beta</span>
+          <span class="hardware-gate-option-desc">Original syringe-plunger dispenser</span>
+        </button>
+        <button type="button" class="hardware-gate-option" data-hardware-version="v2">
+          <span class="hardware-gate-option-title">Paste Extruder V2</span>
+          <span class="hardware-gate-option-desc">Current auger-based dispenser</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="header-pill">
     <h1>LumenPnP Pasting Utility</h1>
+    <select id="hardwareVersionSelect" title="Which LumenPnP paste extruder hardware you're running - changes how dispense G-code is generated">
+      <option value="" disabled>Select hardware version…</option>
+      <option value="v1-beta">Paste Extruder V1 Beta</option>
+      <option value="v2">Paste Extruder V2</option>
+    </select>
   </div>
   <div id="top-controls">
     <a href="help.html"><button id="helpButton" style="background-color:gray;height:40px;padding:10px;">Docs</button></a>
@@ -33,17 +56,93 @@
     
     <div id="leftColumn">
       
-      <div class="section-container" id="jobPrep">
+      <div class="panel" data-panel-id="import">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
         <div class="import-section">
-          <div class="button-row">
-            <input type="file" id="jobFile" accept=".json" style="display: none;" />
-            <input type="file" id="gerberFiles" accept=".zip,.gbr,.ger,.gtp,.gbp,.gts,.gbs,.pho,.art" multiple style="display: none;" />
-            <button class="goldenrod-button" id="importJob" type="button">Import Job</button>
-            OR
-            <button class="goldenrod-button" id="importGerber" type="button">Import Gerber</button>
-            <span id="gerberImportStatus"></span>
-          </div>
+          <h2 class="checklist-heading">Setup Checklist</h2>
+          <ol class="setup-checklist" id="setupChecklist">
+
+            <li class="checklist-step" data-step="connect" id="checklistStepConnect">
+              <span class="checklist-num">1</span>
+              <div class="checklist-body">
+                <div class="checklist-title">Connect to the machine</div>
+                <div class="checklist-desc">Plug the LumenPnP in over USB, then connect.</div>
+              </div>
+              <button class="goldenrod-button checklist-action" id="checklistConnect" type="button">Connect</button>
+            </li>
+
+            <li class="checklist-step" data-step="import" id="checklistStepImport">
+              <span class="checklist-num">2</span>
+              <div class="checklist-body">
+                <div class="checklist-title">Import a job or gerber files</div>
+                <div class="checklist-desc">Load a saved job, or import gerbers to start a new one.</div>
+                <span id="gerberImportStatus"></span>
+              </div>
+              <div class="checklist-action-group">
+                <input type="file" id="jobFile" accept=".json" style="display: none;" />
+                <input type="file" id="gerberFiles" accept=".zip,.gbr,.ger,.gtp,.gbp,.gts,.gbs,.pho,.art" multiple style="display: none;" />
+                <button class="goldenrod-button" id="importJob" type="button">Import Job</button>
+                <button class="goldenrod-button" id="importGerber" type="button">Import Gerber</button>
+              </div>
+            </li>
+
+            <li class="checklist-step" data-step="roughpos" id="checklistStepRoughPos">
+              <span class="checklist-num">3</span>
+              <div class="checklist-body">
+                <div class="checklist-title">Set the board's rough position</div>
+                <div class="checklist-desc">Jog to each fiducial, then to the board surface, so the machine roughly knows where the board sits.</div>
+              </div>
+              <button class="goldenrod-button checklist-action" id="checklistRoughPos" type="button">Get Rough Position</button>
+            </li>
+
+            <li class="checklist-step" data-step="fidcal" id="checklistStepFidCal">
+              <span class="checklist-num">4</span>
+              <div class="checklist-body">
+                <div class="checklist-title">Calibrate on the fiducials</div>
+                <div class="checklist-desc">Auto-centers the camera on each fiducial to precisely locate the board.</div>
+              </div>
+              <button class="goldenrod-button checklist-action" id="checklistFidCal" type="button">Perform Fid Cal</button>
+            </li>
+
+            <li class="checklist-step" data-step="nozzlecal" id="checklistStepNozzleCal">
+              <span class="checklist-num">5</span>
+              <div class="checklist-body">
+                <div class="checklist-title">Calibrate the nozzle offset</div>
+                <div class="checklist-desc">Optional, but recommended after swapping tips - aligns the dispense tip with the camera's view.</div>
+              </div>
+              <button class="goldenrod-button checklist-action" id="checklistNozzleCal" type="button">Nozzle Offset Cal</button>
+            </li>
+
+            <li class="checklist-step" data-step="settings" id="checklistStepSettings">
+              <span class="checklist-num">6</span>
+              <div class="checklist-body">
+                <div class="checklist-title">Review dispense &amp; extruder settings</div>
+                <div class="checklist-desc">Check dispense degrees, speeds, and Z offsets before running.</div>
+              </div>
+              <button class="goldenrod-button checklist-action" id="checklistGoSettings" type="button">Go to Settings</button>
+            </li>
+
+            <li class="checklist-step" data-step="run" id="checklistStepRun">
+              <span class="checklist-num">7</span>
+              <div class="checklist-body">
+                <div class="checklist-title">Export or run the job</div>
+                <div class="checklist-desc">Save the job for later, or run it now.</div>
+              </div>
+              <div class="checklist-action-group">
+                <button class="goldenrod-button checklist-action" id="checklistExport" type="button">Export Job</button>
+                <button class="goldenrod-button checklist-action" id="checklistRun" type="button">Run Job</button>
+              </div>
+            </li>
+
+          </ol>
         </div>
+        </div>
+      </div>
+
+      <div class="panel" data-panel-id="job-positions">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
         <div class="settings-container">
           <div class="positions-section">
             <div class="positions-header">
@@ -51,20 +150,57 @@
               <button id="getRoughBoardPosition" class="goldenrod-button">Get Rough Board Position</button>
 
               <button id="performFidCal" class="goldenrod-button">Perform Fid Cal</button>
+              <button id="nozzleOffsetCal" class="goldenrod-button">Nozzle Offset Cal</button>
               <button id="captureNewPos" class="goldenrod-button">Capture New Position</button>
               <div class="select-all-none">
                 <button id="selectAllComponents" class="goldenrod-button" type="button">Select All</button>
                 <button id="selectNoneComponents" class="goldenrod-button" type="button">Select None</button>
               </div>
             </div>
+            <div class="settings-row board-offsets-row" title="Nozzle offset for whichever board tab is active below - each board keeps its own">
+              <div class="setting-item">
+                <label>X Offset: <span id="x-offset-value">0.0mm</span></label>
+                <div class="offset-tool">
+                  <button id="x-offset-down" class="goldenrod-button">-</button>
+                  <button id="x-offset-up" class="goldenrod-button">+</button>
+                </div>
+              </div>
+              <div class="setting-item">
+                <label>Y Offset: <span id="y-offset-value">0.0mm</span></label>
+                <div class="offset-tool">
+                  <button id="y-offset-down" class="goldenrod-button">-</button>
+                  <button id="y-offset-up" class="goldenrod-button">+</button>
+                </div>
+              </div>
+              <div class="setting-item">
+                <label>Z Offset: <span id="z-offset-value">0.0mm</span></label>
+                <div class="offset-tool">
+                  <button id="z-offset-down" class="goldenrod-button">▼</button>
+                  <button id="z-offset-up" class="goldenrod-button">▲</button>
+                </div>
+              </div>
+            </div>
+            <div class="board-tabs-container"></div>
             <div class="positions-list">
             </div>
           </div>
-          
-        </div>
 
+        </div>
+        </div>
+      </div>
+
+      <div class="panel" data-panel-id="visualization">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
         <div class="gerber-visualization">
           <div class="gerber-visualization-container">
+            <div class="build-plate-controls">
+              <label for="buildPlateSelect">Build Plate:</label>
+              <select id="buildPlateSelect">
+                <option value="standard" selected>Standard (390 x 240mm)</option>
+                <option value="extended">Extended (390 x 330mm)</option>
+              </select>
+            </div>
             <div class="gerber-visualization-controls">
               <button id="vizZoomIn" class="goldenrod-button" type="button" title="Zoom in">+</button>
               <button id="vizZoomOut" class="goldenrod-button" type="button" title="Zoom out">−</button>
@@ -75,11 +211,19 @@
           </div>
 
         </div>
+        </div>
+      </div>
 
+      <div class="panel" data-panel-id="extruder-settings">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
         <div class="settings-section">
           <div class="settings-tabs">
             <button type="button" class="settings-tab-btn active" id="settingsTabBasic" data-tab-panel="basicSettingsPanel">Basic</button>
-            <button type="button" class="settings-tab-btn" id="settingsTabAdvanced" data-tab-panel="advancedSettingsPanel">Advanced</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabGlobal" data-tab-panel="globalSettingsPanel">Global</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabGrid" data-tab-panel="gridSettingsPanel">Grid</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabLine" data-tab-panel="lineSettingsPanel">Line</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabStaggered" data-tab-panel="staggeredSettingsPanel">Staggered</button>
           </div>
 
           <div id="basicSettingsPanel">
@@ -89,35 +233,13 @@
               <label for="jobDispenseDeg">Dispense Degrees:</label>
               <input type="number" id="jobDispenseDeg" min="1" max="300" value="30" />
             </div>
-            <div class="setting-item">
-              <label for="jobMotionSpeed">Motion Speed (mm/min):</label>
-              <input type="number" id="jobMotionSpeed" min="1" max="50000" value="35000" />
+            <div class="setting-item hw-plunger-only">
+              <label for="jobRetractionDeg" title="Paste Extruder V1 Beta only - how far the plunger backs off after each dispense to reduce stringing/ooze">Retraction Degrees:</label>
+              <input type="number" id="jobRetractionDeg" min="0" max="200" value="5" />
             </div>
-            <div class="setting-item">
-              <label for="jobExtruderSpeed">Extruder Speed (mm/min):</label>
-              <input type="number" id="jobExtruderSpeed" min="1" max="200000" value="100000" />
-            </div>
-            <div class="setting-item">
-              <label for="jobMotorCurrent" title="Auger stepper current while dispensing paste">Pasting Motor Current (mA):</label>
-              <input type="number" id="jobMotorCurrent" min="0" max="2000" step="10" value="450" />
-            </div>
-            <div class="setting-item">
-              <label for="jobVacuumPressure">Air Assist: <span id="jobVacuumPressureValue">100</span>%</label>
-              <input type="range" id="jobVacuumPressure" min="0" max="100" value="100" step="1" />
-            </div>
-            <div class="setting-item">
-              <label for="jobTravelHeight" title="Z height the nozzle rests at while moving between pads during a run">Travel Height (mm):</label>
-              <input type="number" id="jobTravelHeight" min="0" max="50" step="0.1" value="31.5" />
-            </div>
-          </div>
-          <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
-            <div class="setting-item" style="flex: 1;">
-              <label for="jobPreGcode">Pre-gcode:</label>
-              <textarea id="jobPreGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the start of the job (one per line)"></textarea>
-            </div>
-            <div class="setting-item" style="flex: 1;">
-              <label for="jobPostGcode">Post-gcode:</label>
-              <textarea id="jobPostGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the end of the job (one per line)"></textarea>
+            <div class="setting-item hw-plunger-only">
+              <label for="jobDwellMs" title="Paste Extruder V1 Beta only - how long to pause after retracting so the paste finishes flowing before moving on">Dwell Milliseconds:</label>
+              <input type="number" id="jobDwellMs" min="0" max="5000" value="100" />
             </div>
           </div>
           <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
@@ -131,44 +253,66 @@
               <button class="goldenrod-button" id="purgeAuger" type="button">Purge Auger</button>
             </div>
           </div>
-          <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
-            <div class="setting-item">
-              <label>X Offset: <span id="x-offset-value">0.0mm</span></label>
-              <div class="offset-tool">
-                <button id="x-offset-down" class="goldenrod-button">-</button>
-                <button id="x-offset-up" class="goldenrod-button">+</button>
-              </div>
-            </div>
-            <div class="setting-item">
-              <label>Y Offset: <span id="y-offset-value">0.0mm</span></label>
-              <div class="offset-tool">
-                <button id="y-offset-down" class="goldenrod-button">-</button>
-                <button id="y-offset-up" class="goldenrod-button">+</button>
-              </div>
-            </div>
-            <div class="setting-item">
-              <label>Z Offset: <span id="z-offset-value">0.0mm</span></label>
-              <div class="offset-tool">
-                <button id="z-offset-down" class="goldenrod-button">▼</button>
-                <button id="z-offset-up" class="goldenrod-button">▲</button>
-              </div>
-            </div>
-          </div>
           </div>
 
-          <div id="advancedSettingsPanel" style="display: none;">
-            <h2>Advanced Paste Dispense Settings</h2>
+          <div id="globalSettingsPanel" class="advanced-settings-panel" style="display: none;">
+            <h2>Global Settings</h2>
             <p class="advanced-settings-note">
-              Tunes how a gerber import turns pad footprints into dispense dots
-              (see gerberImport.js). Changing a value immediately re-runs the
-              currently loaded board's pads through the new setting - no need
-              to re-import the gerber. Note: this resets any per-pad
-              enable/disable selections back to all-enabled, since a settings
-              change can change how many dots a pad even has.
+              Cross-cutting paste-dispense settings that apply across every
+              pattern and every board in this job. The per-pattern
+              classification thresholds and placement settings live on the
+              Grid/Line/Staggered tabs; per-board nozzle offsets live in the
+              Job Positions panel.
             </p>
+            <div class="settings-row">
+              <div class="setting-item">
+                <label for="jobMotionSpeed">Motion Speed (mm/min):</label>
+                <input type="number" id="jobMotionSpeed" min="1" max="50000" value="35000" />
+              </div>
+              <div class="setting-item">
+                <label for="jobExtruderSpeed">Extruder Speed (mm/min):</label>
+                <input type="number" id="jobExtruderSpeed" min="1" max="200000" value="100000" />
+              </div>
+              <div class="setting-item">
+                <label for="jobMotorCurrent" title="Auger stepper current while dispensing paste">Pasting Motor Current (mA):</label>
+                <input type="number" id="jobMotorCurrent" min="0" max="2000" step="10" value="450" />
+              </div>
+              <div class="setting-item">
+                <label for="jobVacuumPressure">Air Assist: <span id="jobVacuumPressureValue">100</span>%</label>
+                <input type="range" id="jobVacuumPressure" min="0" max="100" value="100" step="1" />
+              </div>
+              <div class="setting-item">
+                <label for="jobTravelHeight" title="Z height the nozzle rests at while moving between pads during a run">Travel Height (mm):</label>
+                <input type="number" id="jobTravelHeight" min="0" max="50" step="0.1" value="31.5" />
+              </div>
+            </div>
+            <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
+              <div class="setting-item" style="flex: 1;">
+                <label for="jobPreGcode">Pre-gcode:</label>
+                <textarea id="jobPreGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the start of the job (one per line)"></textarea>
+              </div>
+              <div class="setting-item" style="flex: 1;">
+                <label for="jobPostGcode">Post-gcode:</label>
+                <textarea id="jobPostGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the end of the job (one per line)"></textarea>
+              </div>
+            </div>
+            <div class="button-row">
+              <button id="resetAdvancedSettings" class="goldenrod-button" type="button" title="Resets the Grid/Line/Staggered pad-classification thresholds only - not the speed/current/travel settings above">Reset Pad-Classification Defaults</button>
+            </div>
+          </div>
 
+          <div id="lineSettingsPanel" class="advanced-settings-panel" style="display: none;">
+            <h2>Line (Elongated Pad) Dispense Settings</h2>
+            <p class="advanced-settings-note">
+              Which pads count as elongated (get a line of dots instead of a
+              single dot), and how that line is placed. Changing a value
+              immediately re-runs the currently loaded board's pads through
+              the new setting - no need to re-import the gerber. Note: this
+              resets any per-pad enable/disable selections back to
+              all-enabled, since a settings change can change how many dots a
+              pad even has.
+            </p>
             <div class="advanced-settings-group">
-              <h3>Normal Pad Dispense</h3>
               <div class="settings-row">
                 <div class="setting-item">
                   <label for="advElongatedAspectRatio" title="Length:width ratio a pad must clear to be treated as elongated (line pattern) instead of a single dot">Elongated Aspect Ratio:</label>
@@ -196,9 +340,23 @@
                 </div>
               </div>
             </div>
+            <div class="button-row">
+              <button class="goldenrod-button reset-advanced-settings-alias" type="button">Reset to Defaults</button>
+            </div>
+          </div>
 
+          <div id="gridSettingsPanel" class="advanced-settings-panel" style="display: none;">
+            <h2>Solder Paste Grid Settings</h2>
+            <p class="advanced-settings-note">
+              Which pads count as a large open pad (e.g. a QFN thermal pad -
+              gets a grid of dots instead of one dot/line), and how that grid
+              is placed. Changing a value immediately re-runs the currently
+              loaded board's pads through the new setting - no need to
+              re-import the gerber. Note: this resets any per-pad
+              enable/disable selections back to all-enabled, since a settings
+              change can change how many dots a pad even has.
+            </p>
             <div class="advanced-settings-group">
-              <h3>Solder Paste Grid Settings</h3>
               <div class="settings-row">
                 <div class="setting-item">
                   <label for="advPowerPadMinAreaMm2" title="Pad area (mm²) at or above which a pad gets a grid of dots instead of one dot/line">Grid Pad Min Area (mm²):</label>
@@ -214,9 +372,24 @@
                 </div>
               </div>
             </div>
+            <div class="button-row">
+              <button class="goldenrod-button reset-advanced-settings-alias" type="button">Reset to Defaults</button>
+            </div>
+          </div>
 
+          <div id="staggeredSettingsPanel" class="advanced-settings-panel" style="display: none;">
+            <h2>Staggered / Tight-Pitch Dispense Settings</h2>
+            <p class="advanced-settings-note">
+              Which pads count as fine-pitch/tight-pitch (TSOP/QFP/SOIC-style
+              gull-wing leads sitting in a tight row - get a single staggered
+              dot instead of a line), and how that dot is placed. Changing a
+              value immediately re-runs the currently loaded board's pads
+              through the new setting - no need to re-import the gerber.
+              Note: this resets any per-pad enable/disable selections back to
+              all-enabled, since a settings change can change how many dots a
+              pad even has.
+            </p>
             <div class="advanced-settings-group">
-              <h3>Staggered / Tight-Pitch Dispense</h3>
               <div class="settings-row">
                 <div class="setting-item">
                   <label for="advTightPitchGapMm" title="Edge-to-edge gap (mm) under which neighboring pads are treated as fine-pitch/tight-pitch">Tight-Pitch Gap (mm):</label>
@@ -236,13 +409,17 @@
                 </div>
               </div>
             </div>
-
             <div class="button-row">
-              <button id="resetAdvancedSettings" class="goldenrod-button" type="button">Reset to Defaults</button>
+              <button class="goldenrod-button reset-advanced-settings-alias" type="button">Reset to Defaults</button>
             </div>
           </div>
         </div>
+        </div>
+      </div>
 
+      <div class="panel" data-panel-id="export-run">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
         <div class="settings-section">
           <div class="button-row">
             <button id="exportJob" class="goldenrod-button">Export Job</button>
@@ -250,97 +427,120 @@
           </div>
           <div id="jobRunTime" class="job-run-time"></div>
         </div>
+        </div>
       </div>
 
-      
     </div>
 
     <div id="rightColumn">
-      <div class="video-feed">
-        <div class="video-feed-viewport">
-          <canvas id="opencv-canvas"></canvas>
+      <div class="panel" data-panel-id="camera">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
+        <div class="video-feed">
+          <div class="video-feed-viewport">
+            <canvas id="opencv-canvas"></canvas>
+          </div>
+          <div class="camera-scale-row">
+            <label for="cameraPxPerMm" title="How many camera pixels correspond to 1mm on the board at this camera's current working distance/zoom - used to scale fiducial jogs and size fiducial detection. Retune this if you swap cameras, lenses, or focus height; it takes effect immediately.">Camera Scale (px/mm):</label>
+            <input type="number" id="cameraPxPerMm" min="1" step="1" value="42" />
+          </div>
+          <div class="camera-scale-row">
+            <label for="fiducialConfidence" title="How strong a circle's edge evidence has to be to count as a fiducial detection. Lower catches more real fiducials in poor lighting/focus but lets more false positives (silkscreen, pads) through too; higher is the reverse.">Fiducial Confidence: <span id="fiducialConfidenceValue">33</span></label>
+            <input type="range" id="fiducialConfidence" min="10" max="80" step="1" value="33" />
+          </div>
         </div>
-        <div class="camera-scale-row">
-          <label for="cameraPxPerMm" title="How many camera pixels correspond to 1mm on the board at this camera's current working distance/zoom - used to scale fiducial jogs and size fiducial detection. Retune this if you swap cameras, lenses, or focus height; it takes effect immediately.">Camera Scale (px/mm):</label>
-          <input type="number" id="cameraPxPerMm" min="1" step="1" value="42" />
-        </div>
-        <div class="camera-scale-row">
-          <label for="fiducialConfidence" title="How strong a circle's edge evidence has to be to count as a fiducial detection. Lower catches more real fiducials in poor lighting/focus but lets more false positives (silkscreen, pads) through too; higher is the reverse.">Fiducial Confidence: <span id="fiducialConfidenceValue">33</span></label>
-          <input type="range" id="fiducialConfidence" min="10" max="80" step="1" value="33" />
         </div>
       </div>
 
-      <div class="control-row">
-        <button id="process-button" class="goldenrod-button">Jog to Fid in View</button>
-        <button id="homing-fid-button" class="goldenrod-button">Visual Home</button>
-        <button id="nozzleOffsetCal" class="goldenrod-button">Nozzle Offset Cal</button>
+      <div class="panel" data-panel-id="jog">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
+        <div class="machine-position-row" title="Polled from the board about once a second while connected - paused during a job run or any other command send">
+          <span class="machine-position-label">Machine Position:</span>
+          <span class="machine-position-axis">X: <span id="machinePosX">--</span></span>
+          <span class="machine-position-axis">Y: <span id="machinePosY">--</span></span>
+          <span class="machine-position-axis">Z: <span id="machinePosZ">--</span></span>
+        </div>
 
-        
-      </div>
-      
-      <div class="control-buttons"> 
         <div class="control-row">
-          <button id="home-x">Home X</button>
-          <button id="home-y">Home Y</button>
-          <button id="home-z">Home Z</button>
-        </div>
-      </div>
-      
-      <div class="jog-controls">
-        <div class="jog-buttons">
-          <div class="jog-row">
-            <button id="jog-yp" class="goldenrod-button">Y+</button>
-          </div>
-          <div class="jog-row">
-            <button id="jog-xm" class="goldenrod-button">X-</button>
-            
-            <button id="jog-xp" class="goldenrod-button">X+</button>
-          </div>
-          <div class="jog-row">
-            <button id="jog-ym" class="goldenrod-button">Y-</button>
-          </div>
-          <div class="jog-row">
-            <button id="jog-zm" class="goldenrod-button">Z+</button>
-            <button id="jog-zp" class="goldenrod-button">Z-</button>
-          </div>
-          <div class="jog-row">
-            <button class="goldenrod-button" id="extrude-btn">Extrude</button>
-          </div>
-        </div>
-        <div class="jog-slider-container">
-          <input type="range" id="jog-distance" min="1" max="4" value="2" step="1" list="jog-distances">
-          <datalist id="jog-distances">
-            <option value="1">100mm</option>
-            <option value="2">10mm</option>
-            <option value="3">1mm</option>
-            <option value="4">0.1mm</option>
-          </datalist>
+          <button id="process-button" class="goldenrod-button">Jog to Fid in View</button>
+          <button id="homing-fid-button" class="goldenrod-button">Visual Home</button>
         </div>
 
+        <div class="control-buttons">
+          <div class="control-row">
+            <button id="home-x">Home X</button>
+            <button id="home-y">Home Y</button>
+            <button id="home-z">Home Z</button>
+          </div>
+        </div>
+
+        <div class="jog-controls">
+          <div class="jog-buttons">
+            <div class="jog-row">
+              <button id="jog-yp" class="goldenrod-button">Y+</button>
+            </div>
+            <div class="jog-row">
+              <button id="jog-xm" class="goldenrod-button">X-</button>
+
+              <button id="jog-xp" class="goldenrod-button">X+</button>
+            </div>
+            <div class="jog-row">
+              <button id="jog-ym" class="goldenrod-button">Y-</button>
+            </div>
+            <div class="jog-row">
+              <button id="jog-zm" class="goldenrod-button">Z+</button>
+              <button id="jog-zp" class="goldenrod-button">Z-</button>
+            </div>
+            <div class="jog-row">
+              <button class="goldenrod-button" id="extrude-btn">Extrude</button>
+            </div>
+          </div>
+          <div class="jog-slider-container">
+            <input type="range" id="jog-distance" min="1" max="4" value="2" step="1" list="jog-distances">
+            <datalist id="jog-distances">
+              <option value="1">100mm</option>
+              <option value="2">10mm</option>
+              <option value="3">1mm</option>
+              <option value="4">0.1mm</option>
+            </datalist>
+          </div>
+
+        </div>
+        </div>
       </div>
 
-      <div class="control-row" style="margin-top:15px;">
-        <button id="ring-lights-toggle">Ring Lights: Off</button>
+      <div class="panel" data-panel-id="machine-io">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
+        <div class="control-row" style="margin-top:15px;">
+          <button id="ring-lights-toggle">Ring Lights: Off</button>
+        </div>
+
+        <div class="control-row">
+          <button id="left-air-toggle">Left Air: Off</button>
+          <button id="right-air-toggle">Right Air: Off</button>
+          <button id="left-vac">Left Vac</button>
+          <button id="right-vac">Right Vac</button>
+        </div>
+
+        <div class="control-row">
+          <button id="disable-steppers">Disable Steppers</button>
+        </div>
+        </div>
       </div>
 
-      <div class="control-row">
-        <button id="left-air-toggle">Left Air: Off</button>
-        <button id="right-air-toggle">Right Air: Off</button>
-        <button id="left-vac">Left Vac</button>
-        <button id="right-vac">Right Vac</button>
-      </div>
-    
-      <div class="control-row">
-        <button id="disable-steppers">Disable Steppers</button>
-      </div>
-      
-
-      <div class="repl-section">
-        <h3>Console</h3>
-        <div id="console"></div>
-        <div id="repl-bottom-row">
-          <input id="repl-input" type="text" placeholder="Send Gcode" />
-          <button id="send" type="button" class="goldenrod-button">Send</button>
+      <div class="panel" data-panel-id="console">
+        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
+        <div class="panel-body">
+        <div class="repl-section">
+          <h3>Console</h3>
+          <div id="console"></div>
+          <div id="repl-bottom-row">
+            <input id="repl-input" type="text" placeholder="Send Gcode" />
+            <button id="send" type="button" class="goldenrod-button">Send</button>
+          </div>
+        </div>
         </div>
       </div>
     </div>

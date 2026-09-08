@@ -16,6 +16,62 @@ let serial = new serialManager(modal);
 let lumen = new Lumen(serial);
 let currentJob = new Job(lumen, toast);
 
+setupHardwareVersionGate();
+
+// Gates the whole app behind picking a paste extruder hardware version
+// (see Job.hardwareVersion in job.js, which the actual G-code branches on) -
+// first-time visitors see a full-screen choice (#hardwareGate) before
+// #top-controls/#main-app/#footer ever become visible; the header dropdown
+// (#hardwareVersionSelect, always visible next to the title) lets it be
+// changed again later without re-triggering that gate. Runs as early as
+// possible (top-level, before the OpenCV/camera setup below, which can take
+// a moment to load) so the gate itself isn't delayed by anything else.
+function setupHardwareVersionGate(){
+  const STORAGE_KEY = 'lumenPasteUtility.hardwareVersion';
+  const gate = document.getElementById('hardwareGate');
+  const select = document.getElementById('hardwareVersionSelect');
+  const lockedElements = ['top-controls', 'main-app', 'footer']
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+
+  function applyHardwareVersion(version, { persist }){
+    currentJob.hardwareVersion = version;
+    if (select) select.value = version;
+    if (persist) localStorage.setItem(STORAGE_KEY, version);
+
+    gate?.classList.remove('visible');
+    for (const el of lockedElements) el.classList.remove('hw-locked');
+
+    // Retraction Degrees/Dwell Milliseconds only mean anything for the V1
+    // Beta plunger (see plungerDispenseCommands() in job.js) - hide them
+    // entirely for V2 instead of leaving dead, unused inputs on screen.
+    for (const el of document.querySelectorAll('.hw-plunger-only')) {
+      el.classList.toggle('hw-hidden-for-hw', version !== 'v1-beta');
+    }
+  }
+
+  select?.addEventListener('change', () => {
+    if (select.value) applyHardwareVersion(select.value, { persist: true });
+  });
+
+  for (const option of gate?.querySelectorAll('.hardware-gate-option') ?? []) {
+    option.addEventListener('click', () => {
+      applyHardwareVersion(option.dataset.hardwareVersion, { persist: true });
+    });
+  }
+
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored === 'v1-beta' || stored === 'v2') {
+    applyHardwareVersion(stored, { persist: false });
+  } else {
+    // No choice saved yet - keep the rest of the app hidden and put up the
+    // gate instead of defaulting silently, since which hardware is running
+    // changes the actual dispense G-code (see Job.pointDispenseCommands()).
+    for (const el of lockedElements) el.classList.add('hw-locked');
+    gate?.classList.add('visible');
+  }
+}
+
 onOpenCVReady(cv => {
   console.log("OpenCV loaded");
   
@@ -132,6 +188,8 @@ onOpenCVReady(cv => {
   
   // settings elements
   const jobDispenseDeg = document.getElementById('jobDispenseDeg');
+  const jobRetractionDeg = document.getElementById('jobRetractionDeg');
+  const jobDwellMs = document.getElementById('jobDwellMs');
   const jobMotionSpeed = document.getElementById('jobMotionSpeed');
   const jobExtruderSpeed = document.getElementById('jobExtruderSpeed');
   const jobVacuumPressure = document.getElementById('jobVacuumPressure');
@@ -148,6 +206,18 @@ onOpenCVReady(cv => {
       // Redraw so placement dots (sized by dispense degrees) reflect the new
       // value immediately for every point still using the job-wide default.
       currentJob.drawJobToCanvas();
+    });
+  }
+
+  if (jobRetractionDeg) {
+    jobRetractionDeg.addEventListener('change', (e) => {
+      currentJob.retractionDegrees = Number(e.target.value);
+    });
+  }
+
+  if (jobDwellMs) {
+    jobDwellMs.addEventListener('change', (e) => {
+      currentJob.dwellMilliseconds = Number(e.target.value);
     });
   }
 
@@ -218,19 +288,23 @@ onOpenCVReady(cv => {
     });
   }
 
-  // Basic/Advanced settings tab switcher - toggles which panel is visible
-  // and which tab button carries the .active style.
+  // Settings tab switcher (Basic / Global / Grid / Line / Staggered) -
+  // toggles which panel is visible and which tab button carries the .active
+  // style. Panel ids come from the buttons' own data-tab-panel attributes
+  // rather than a hardcoded list, so adding another tab+panel pair later
+  // doesn't need a matching change here.
   const settingsTabButtons = document.querySelectorAll('.settings-tab-btn');
+  const settingsPanelIds = [...settingsTabButtons].map(btn => btn.dataset.tabPanel);
   settingsTabButtons.forEach(tabButton => {
     tabButton.addEventListener('click', () => {
       settingsTabButtons.forEach(btn => btn.classList.remove('active'));
       tabButton.classList.add('active');
 
       const targetPanelId = tabButton.dataset.tabPanel;
-      document.getElementById('basicSettingsPanel').style.display =
-        targetPanelId === 'basicSettingsPanel' ? '' : 'none';
-      document.getElementById('advancedSettingsPanel').style.display =
-        targetPanelId === 'advancedSettingsPanel' ? '' : 'none';
+      for (const panelId of settingsPanelIds) {
+        const panel = document.getElementById(panelId);
+        if (panel) panel.style.display = panelId === targetPanelId ? '' : 'none';
+      }
     });
   });
 
@@ -269,21 +343,26 @@ onOpenCVReady(cv => {
     if (!el) continue;
     el.addEventListener('change', (e) => {
       setPasteDispenseSettings({[key]: Number(e.target.value)});
-      // Re-run the board that's already loaded through the new settings
-      // immediately, instead of making you re-import the gerber to see the
-      // effect. No-ops (returns false) if nothing's been gerber-imported yet.
+      // Re-run every pasted board through the new settings immediately,
+      // instead of making you re-import each gerber to see the effect.
+      // No-ops per board that hasn't been gerber-imported yet.
       currentJob.recomputeDispensePattern();
     });
   }
 
-  const resetAdvancedSettingsButton = document.getElementById('resetAdvancedSettings');
-  if (resetAdvancedSettingsButton) {
-    resetAdvancedSettingsButton.addEventListener('click', () => {
+  // "Reset to Defaults" appears on every advanced tab (Global/Grid/Line/
+  // Staggered) since it resets all of gerberImport.js's tunables at once,
+  // not just whichever tab you're looking at - #resetAdvancedSettings is the
+  // original/first one, the rest share a class since only one element can
+  // own an id.
+  const resetAdvancedSettingsButtons = document.querySelectorAll('#resetAdvancedSettings, .reset-advanced-settings-alias');
+  resetAdvancedSettingsButtons.forEach(button => {
+    button.addEventListener('click', () => {
       resetPasteDispenseSettings();
       refreshPasteSettingsInputs();
       currentJob.recomputeDispensePattern();
     });
-  }
+  });
 
   // Select All / Select None for the whole Job Positions list, instead of
   // clicking through every type/component checkbox individually.
@@ -368,6 +447,8 @@ onOpenCVReady(cv => {
       try {
         // ensure we have the latest values from the UI
         if (jobDispenseDeg) currentJob.dispenseDegrees = Number(jobDispenseDeg.value);
+        if (jobRetractionDeg) currentJob.retractionDegrees = Number(jobRetractionDeg.value);
+        if (jobDwellMs) currentJob.dwellMilliseconds = Number(jobDwellMs.value);
         if (jobMotionSpeed) currentJob.motionSpeed = Number(jobMotionSpeed.value);
         if (jobExtruderSpeed) currentJob.extruderSpeed = Number(jobExtruderSpeed.value);
         if (jobVacuumPressure) currentJob.vacuumPressure = Number(jobVacuumPressure.value);
@@ -457,6 +538,14 @@ onOpenCVReady(cv => {
         videoManager.stopVideo(canvas);
         isCameraRunning = false;
       }
+
+      // Nothing's actually polling the board's position anymore (see
+      // setupMachinePositionPoll() below) - blank the readout instead of
+      // leaving the last-known values up looking still-live.
+      for (const id of ['machinePosX', 'machinePosY', 'machinePosZ']) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '--';
+      }
     } catch (err) {
       alert('Error: ' + err.message);
     }
@@ -483,12 +572,10 @@ onOpenCVReady(cv => {
   });
 
   document.getElementById("nozzleOffsetCal").addEventListener('click', async () => {
+    // performTipCalibration() sets the active board's tipXoffset/tipYoffset
+    // and refreshes the offset-tool display itself now that those are
+    // per-board (see updateOffsetDisplay() in job.js).
     await currentJob.performTipCalibration();
-
-    // performTipCalibration sets tipXoffset/tipYoffset directly, so refresh the
-    // offset tool's on-screen values to match instead of leaving them stale.
-    document.getElementById("x-offset-value").textContent = `${lumen.tipXoffset.toFixed(1)}mm`;
-    document.getElementById("y-offset-value").textContent = `${lumen.tipYoffset.toFixed(1)}mm`;
   });
 
 
@@ -622,7 +709,7 @@ if (purgeAugerBtn) {
 // Shared by the X/Y/Z offset tools in the Extruder Settings panel.
 const offsetStep = 0.1;
 
-function adjustOffset(lumenProperty, gcodeAxis, valueElementId, delta) {
+function adjustOffset(jobProperty, gcodeAxis, valueElementId, delta) {
   // Only keep the new value if the machine is actually connected to receive
   // the matching jog - otherwise the stored offset (and the UI) would show a
   // change that never happened on the physical machine, so it'd look "saved"
@@ -632,8 +719,10 @@ function adjustOffset(lumenProperty, gcodeAxis, valueElementId, delta) {
     return;
   }
 
-  lumen[lumenProperty] = Math.round((lumen[lumenProperty] + delta) * 10) / 10;
-  document.getElementById(valueElementId).textContent = `${lumen[lumenProperty].toFixed(1)}mm`;
+  // tipXoffset/tipYoffset/zOffset are per-board (see the getters in job.js) -
+  // this always adjusts whichever board's tab is currently active.
+  currentJob[jobProperty] = Math.round((currentJob[jobProperty] + delta) * 10) / 10;
+  document.getElementById(valueElementId).textContent = `${currentJob[jobProperty].toFixed(1)}mm`;
   serial.send(["G91", `G0 ${gcodeAxis}${delta} F${currentJob.motionSpeed}`, "G90"]);
 }
 
@@ -774,3 +863,249 @@ document.getElementById('captureNewPos').addEventListener('click', async () => {
     console.error('Error during pos capture:', error);
   }
 });
+
+// Setup Checklist (import panel) - a single guided front door that walks a
+// user through connecting, importing, calibrating, and running a job in
+// order, instead of hunting each step's control down across separate
+// panels. Every checklist button just forwards its click to the real
+// control that already lives elsewhere (one source of truth for the actual
+// logic); this only decides what's done/next and enables/disables
+// accordingly. Steps whose action would error or behave oddly if clicked
+// out of order (rough position needs a connection and exactly 3 fiducials;
+// fid cal needs a rough position first) are locked until their
+// prerequisite is met - the rest are left open since nothing breaks if
+// they're done in a different order.
+function setupSetupChecklist(){
+  const checklist = document.getElementById('setupChecklist');
+  if (!checklist) return;
+
+  const forward = (fromId, toId) => {
+    const from = document.getElementById(fromId);
+    const to = document.getElementById(toId);
+    if (from && to) from.addEventListener('click', () => to.click());
+  };
+
+  forward('checklistConnect', 'connect');
+  forward('checklistRoughPos', 'getRoughBoardPosition');
+  forward('checklistFidCal', 'performFidCal');
+  forward('checklistNozzleCal', 'nozzleOffsetCal');
+  forward('checklistExport', 'exportJob');
+  forward('checklistRun', 'runJob');
+
+  // Just a scroll-to for the settings step - there's nothing to auto-detect
+  // as "done" here, so clicking through is what marks it visited.
+  let settingsVisited = false;
+  const goSettingsButton = document.getElementById('checklistGoSettings');
+  if (goSettingsButton) {
+    goSettingsButton.addEventListener('click', () => {
+      const settingsPanel = document.querySelector('.panel[data-panel-id="extruder-settings"]');
+      if (settingsPanel) {
+        settingsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        settingsPanel.classList.add('checklist-highlight');
+        setTimeout(() => settingsPanel.classList.remove('checklist-highlight'), 1500);
+      }
+      settingsVisited = true;
+      updateChecklistState();
+    });
+  }
+
+  function updateChecklistState(){
+    const connected = serial.isConnected();
+    const jobLoaded = currentJob.boards.some(b => b.placements.length > 0);
+    const fids = currentJob.fiducials;
+    const hasThreeFids = fids.length === 3;
+    const roughDone = hasThreeFids && fids.every(f => typeof f.searchX === 'number' && Number.isFinite(f.searchX));
+    // fidCalMatrix alone isn't enough here - findBoardRoughPosition() (the
+    // PREVIOUS step) already sets it too, from the rough jogged positions,
+    // so checking just that would mark this step done a step early. Matches
+    // Job.boardsMissingFiducialCalibration()'s definition of "actually
+    // calibrated": fid cal itself only ever sets a fiducial's calX/calY
+    // (rough position never does), so requiring those is what actually
+    // distinguishes "camera-precise fid cal has run" from "only roughly
+    // jogged so far".
+    const fidCalDone = hasThreeFids && fids.every(f => f.calX != null && f.calY != null);
+    // No dedicated "calibrated" flag exists on the nozzle offset itself, so
+    // treat a nonzero offset as evidence a calibration has actually been
+    // run rather than left at its zero default. Per-board now (see
+    // Job.tipXoffset), so this only reflects the ACTIVE board's own offset -
+    // matches the rest of this checklist, which is already active-board-only
+    // (this.fiducials et al).
+    const nozzleCalDone = currentJob.tipXoffset !== 0 || currentJob.tipYoffset !== 0;
+    const ranJob = currentJob.lastRunDurationMs != null;
+
+    const steps = [
+      { id: 'checklistStepConnect', done: connected, locked: false, reason: '' },
+      { id: 'checklistStepImport', done: jobLoaded, locked: false, reason: '' },
+      { id: 'checklistStepRoughPos', done: roughDone, locked: !connected || !hasThreeFids,
+        reason: !connected ? 'Connect to the machine first' : !hasThreeFids ? 'Import a job with exactly 3 fiducials first' : '' },
+      { id: 'checklistStepFidCal', done: fidCalDone, locked: !connected || !roughDone,
+        reason: !connected ? 'Connect to the machine first' : !roughDone ? 'Set the rough board position first' : '' },
+      { id: 'checklistStepNozzleCal', done: nozzleCalDone, locked: !connected,
+        reason: !connected ? 'Connect to the machine first' : '' },
+      { id: 'checklistStepSettings', done: settingsVisited, locked: false, reason: '' },
+      // Exporting is just a local file save - it doesn't need a machine
+      // connection, so the step itself (and the Export button) only locks on
+      // having a job loaded; Run gets its own stricter check below.
+      { id: 'checklistStepRun', done: ranJob, locked: !jobLoaded, reason: !jobLoaded ? 'Import a job first' : '' },
+    ];
+
+    for (const step of steps) {
+      const el = document.getElementById(step.id);
+      if (!el) continue;
+      el.classList.toggle('done', step.done);
+      el.classList.toggle('locked', step.locked);
+      for (const btn of el.querySelectorAll('button')) {
+        btn.disabled = step.locked;
+        btn.title = step.locked ? step.reason : '';
+      }
+    }
+
+    const connectBtn = document.getElementById('checklistConnect');
+    if (connectBtn) {
+      connectBtn.disabled = connected;
+      connectBtn.textContent = connected ? 'Connected' : 'Connect';
+    }
+
+    // Run additionally needs a live connection, on top of the step's own
+    // job-loaded check above.
+    const runBtn = document.getElementById('checklistRun');
+    if (runBtn) {
+      const runLocked = !connected || !jobLoaded;
+      runBtn.disabled = runLocked;
+      runBtn.title = runLocked ? (!connected ? 'Connect to the machine first' : 'Import a job first') : '';
+    }
+  }
+
+  updateChecklistState();
+  setInterval(updateChecklistState, 500);
+}
+
+setupSetupChecklist();
+
+// Makes every .panel in #leftColumn/#rightColumn reorderable (drag its
+// .panel-drag-handle up/down within its own column) and resizable (native
+// browser resize handle on .panel-body's bottom-right corner - see the CSS).
+// Order and resized heights persist per panel id in localStorage, restored
+// on load, so a layout the user sets up survives a page refresh.
+function setupPanels(){
+  const STORAGE_PREFIX = 'lumenPasteUtility.panel.';
+  const columns = [document.getElementById('leftColumn'), document.getElementById('rightColumn')];
+
+  for (const column of columns) {
+    if (!column) continue;
+
+    // Restore a saved panel order before wiring anything else, so dragging
+    // always starts from the user's last layout instead of resetting it.
+    try {
+      const savedOrder = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}${column.id}.order`) || 'null');
+      if (Array.isArray(savedOrder)) {
+        for (const panelId of savedOrder) {
+          const panel = column.querySelector(`:scope > .panel[data-panel-id="${panelId}"]`);
+          if (panel) column.appendChild(panel);
+        }
+      }
+    } catch (error) {
+      console.warn('Could not restore panel order:', error);
+    }
+
+    const panels = [...column.querySelectorAll(':scope > .panel')];
+
+    for (const panel of panels) {
+      const panelId = panel.dataset.panelId;
+      const body = panel.querySelector('.panel-body');
+      const handle = panel.querySelector('.panel-drag-handle');
+      if (!panelId || !body || !handle) continue;
+
+      // Restore a saved resize height. Left unset (falls back to the CSS
+      // default) if nothing's saved yet.
+      const savedHeight = localStorage.getItem(`${STORAGE_PREFIX}${panelId}.height`);
+      if (savedHeight) body.style.height = savedHeight;
+
+      // The native resize handle doesn't fire its own event - a
+      // ResizeObserver is the simplest way to notice the user let go of it
+      // and persist the result. This also re-saves (harmlessly) whenever
+      // savedHeight is applied above or the window reflows the panel.
+      new ResizeObserver(() => {
+        localStorage.setItem(`${STORAGE_PREFIX}${panelId}.height`, `${body.offsetHeight}px`);
+      }).observe(body);
+
+      // Only the drag handle starts a reorder drag - the panel's own
+      // interactive content (buttons, inputs, the canvas) would otherwise
+      // fight the browser's native drag gesture.
+      handle.draggable = true;
+      handle.addEventListener('dragstart', (event) => {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', panelId);
+        panel.classList.add('dragging');
+      });
+      handle.addEventListener('dragend', () => {
+        panel.classList.remove('dragging');
+        const order = [...column.querySelectorAll(':scope > .panel')].map(p => p.dataset.panelId);
+        localStorage.setItem(`${STORAGE_PREFIX}${column.id}.order`, JSON.stringify(order));
+      });
+    }
+
+    // Reorders live as the dragged panel crosses the vertical midpoint of a
+    // sibling, standard drag-and-drop-list pattern - insertBefore/appendChild
+    // just move the existing DOM node, so React-less panels here don't need
+    // any state beyond "where is this element right now".
+    column.addEventListener('dragover', (event) => {
+      const dragging = column.querySelector(':scope > .panel.dragging');
+      if (!dragging) return;
+      event.preventDefault();
+
+      const siblings = [...column.querySelectorAll(':scope > .panel:not(.dragging)')];
+      const nextSibling = siblings.find(sibling => {
+        const rect = sibling.getBoundingClientRect();
+        return event.clientY < rect.top + rect.height / 2;
+      });
+
+      if (nextSibling) column.insertBefore(dragging, nextSibling);
+      else column.appendChild(dragging);
+    });
+  }
+}
+
+// The import panel's saved height (see setupPanels() above) predates the
+// Setup Checklist - it used to hold just a couple of buttons, so anyone
+// with an old saved height would load the new, much taller checklist
+// clipped down into that old short box. Drop that one stale height once so
+// the panel falls back to its natural content height instead; guarded so
+// this never stomps on a height the user resizes it to afterward.
+if (!localStorage.getItem('lumenPasteUtility.panel.import.heightMigratedForChecklist')) {
+  localStorage.removeItem('lumenPasteUtility.panel.import.height');
+  localStorage.setItem('lumenPasteUtility.panel.import.heightMigratedForChecklist', '1');
+}
+
+setupPanels();
+
+// Polls the board for its current position about once a second while
+// connected, and shows it next to the jog controls (see
+// .machine-position-row in index.html) - "where the machine is exactly"
+// without having to jog and watch for a response yourself. Skips a tick
+// (rather than sending anything) whenever the port is already busy - a job
+// run, a jog, anything already inside serial.send() - since
+// grabBoardPosition() shares send()'s not-reentrant ok-response state and
+// would otherwise race it.
+function setupMachinePositionPoll(){
+  const posX = document.getElementById('machinePosX');
+  const posY = document.getElementById('machinePosY');
+  const posZ = document.getElementById('machinePosZ');
+  if (!posX || !posY || !posZ) return;
+
+  setInterval(async () => {
+    if (!serial.isConnected() || serial.sending || currentJob.isRunning) return;
+
+    try {
+      const position = await lumen.grabBoardPosition();
+      if (position.length < 3) return; // no position line found this tick - leave the last known values up
+      posX.textContent = parseFloat(position[0]).toFixed(2);
+      posY.textContent = parseFloat(position[1]).toFixed(2);
+      posZ.textContent = parseFloat(position[2]).toFixed(2);
+    } catch (error) {
+      console.warn('Machine position poll failed:', error);
+    }
+  }, 1000);
+}
+
+setupMachinePositionPoll();

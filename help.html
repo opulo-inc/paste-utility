@@ -11,10 +11,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/png" sizes="16x16" href="public/lumen-icon.png">
   <link rel="shortcut icon" type="image/x-icon" href="public/lumen-icon.png">
-  
+
   <script src="opencv.js"></script>
   <script type="module" src="main.js"></script>
-  
+
   <title>LumenPnP Pasting Utility</title>
 </head>
 
@@ -27,88 +27,79 @@
     <div id="leftColumn">
 
     <h2>Introduction</h2>
-    <p>This utility is designed to support automatic paste dispensing jobs on the LumenPnP with the Paste Extruder Toolhead. It supports running jobs based on a Gerber export from your ECAD software, or by manually capturing positions with the toolhead for other applications. Gerber-based jobs can even facilitate machine vision based fiducial calibration. Jobs can be saved and re-imported later, with all calibration data included. To use this utility, you will need:</p>
+    <p>This utility is designed to support automatic paste dispensing jobs on the LumenPnP with the Paste Extruder Toolhead. It supports running jobs based on a Gerber export from your ECAD software, or by manually capturing positions with the toolhead for other applications. Gerber-based jobs can even facilitate machine vision based fiducial calibration. Jobs can be saved and re-imported later, with all calibration and per-board offset data included. A job can hold several boards at once (each gets its own tab), and running a job pastes every board in one go. To use this utility, you will need:</p>
     <ul>
       <li><a href="https://www.opulo.io/products/lumenpnp">A LumenPnP</a></li>
-      <li><a href="https://www.opulo.io/products/paste-extruder">A Paste Extruder Toolhead</a></li>
+      <li><a href="https://www.opulo.io/products/paste-extruder">A Paste Extruder Toolhead</a> (either the original V1 Beta syringe-plunger version, or the current V2 auger version - see "Choosing your hardware version" below)</li>
       <li>The paste you'd like to dispense (we strongly recommend <a href="https://www.opulo.io/products/gc50-solder-paste">GC50</a> for solder paste applications)</li>
       <li>An appropriately sized luer lock tip (we recommend <a href="https://www.mcmaster.com/75165A125/">a 22 gauge tip</a> for most PCB applications)</li>
       <li>The PCB (or other substrate) you'd like to apply paste to, attached to the LumenPnP's staging plates</li>
       <li>If loading a PCB job:
         <ul>
-          <li>The Paste and Mask layer gerber files for the side of the PCB you'd like to paste. This has been tested with KiCAD exports only thus far.</li>
+          <li>The Paste and Mask layer gerber files for the side of the PCB you'd like to paste (a single zip of your fab output works too - the importer auto-detects which files are which). This has been tested with KiCAD exports only thus far.</li>
           <li>The PCB has three, 1mm diameter fiducials.</li>
         </ul>
       </li>
     </ul>
 
+    <h2>Choosing your hardware version</h2>
+    <p>The very first time you open this page, you'll be asked to pick which Paste Extruder you're running: <strong>Paste Extruder V1 Beta</strong> (the original syringe-plunger dispenser) or <strong>Paste Extruder V2</strong> (the current auger-based dispenser). This choice determines how dispense G-code is generated, so the rest of the app stays hidden until you pick one. Your choice is remembered in this browser, so you won't be asked again - but you can change it any time from the dropdown next to the page title at the top. Switching versions doesn't require reloading a job; it just changes what happens the next time paste is actually dispensed.</p>
+
+    <h2>The Setup Checklist</h2>
+    <p>The panel at the very top of the page walks through the same steps described in detail below, in order, as a quick reference: connect, import, set rough position, calibrate on fiducials, calibrate the nozzle offset, review settings, then export or run. Each step's button just triggers the matching control described in this document - it doesn't do anything different. A step greys out (with a tooltip explaining why) until its prerequisite is done, e.g. you can't set a rough position before importing a board with exactly 3 fiducials.</p>
+
     <h2>Connecting to the LumenPnP</h2>
     <ol>
       <li>Make sure your LumenPnP is connected to your computer via the top camera cable, and the USB data cable from the motherboard.</li>
-      <li>Go to paste.opulo.io</li>
-      <li>From the drop-down in the top right, select the Top Camera and click "Connect". If you don't see the top camera, reconnect the camera and then reload the page.</li>
-      <li>Select the LumenPnP serial port in the pop up window and click "Connect".</li>
-      <li>You should now see the camera feed in the UI. </li>
+      <li>From the drop-down in the top right, select the Top Camera, then click "Connect". If you don't see the top camera, reconnect the camera and then reload the page.</li>
+      <li>Select the LumenPnP serial port in the pop-up window and click "Connect".</li>
+      <li>You should now see the camera feed in the panel on the right. Underneath it, "Camera Scale (px/mm)" and "Fiducial Confidence" control how fiducial jogging and detection interpret that feed - retune Camera Scale if you swap cameras/lenses/focus height, and lower Fiducial Confidence if real fiducials aren't being found (or raise it if silkscreen/pads are being mistaken for fiducials).</li>
       <li>With the Z gantries level, click the Home X, Home Y, and Home Z buttons.</li>
-      <li>Try jogging the machine around using the jog buttons and distance slider.</li>
-      <li>There are a few special functions in the control panel to the right:
+      <li>Try jogging the machine around using the jog buttons and the distance slider beneath them.</li>
+      <li>A few other controls in that panel:
         <ul>
-          <li>"Jog to Fid in View" will find a fiducial in the camera feed and jog to it. This can be handy for quickly centering the camera reticle on a fiducial.</li>
-          <li>"Visual Home" will jog the camera to the datum board, find the homing fiducial, and reset the machine's position based on this. This should be done at the beginning of every boot to ensure all job positions are still valid.</li>
-          <li>"Nozzle Offset Cal" will set the offset from the camera view centerpoint to the tip of the paste extruder. This should be done when setting up a job, and it's saved in the job file.</li>
-          <li>Clicking on a location in the camera feed will jog the machine to that position. This is a quick way to move the machine around and center the view on a certain feature.</li>
+          <li>"Jog to Fid in View" finds a fiducial in the camera feed and jogs to it - handy for quickly centering the camera reticle on a fiducial.</li>
+          <li>"Visual Home" jogs the camera to the datum board, finds the homing fiducial, and resets the machine's position based on it. Do this at the start of every session to make sure previously-calibrated job positions are still valid.</li>
+          <li>Clicking a location in the camera feed jogs the machine to that position - a quick way to center the view on a feature.</li>
+          <li>"Extrude" runs the paste extruder motor directly, without moving anything else - useful for priming the extruder or testing "Invert Dispense" (see below) before a real run.</li>
         </ul>
       </li>
+      <li>Below the jog controls: Ring Lights, Left/Right Air, Left/Right Vac, and Disable Steppers toggle those machine functions directly, and the Console at the bottom lets you send raw G-code and see the machine's responses - handy for troubleshooting.</li>
     </ol>
-    
+
     <h2>Job Setup from Gerbers</h2>
     <ol>
-      <li>Click the "Select Paste Gerber" button, and select the paste layer gerber file from your computer.</li>
-      <li>Click the "Select Mask Gerber" button, and select the mask layer gerber file from your computer.</li>
-      <li>To load the gerbers, click the "Load Gerbers" button.</li>
-      <li>The box below will populate with positions from your gerbers. The red dots are locations in your paste layer. The blue dots are potential fiducial locations.</li>
-      <li>The instructions at the bottom of the page instruct you to click on FID1. In the box, click on the blue dot that is in the same location as FID1 on your PCB. The dot should turn into a green square.</li>
-      <li>Perform the same step for FID2 and FID3 as instructed.</li>
-      <li>The Job Positions section will populate with all the positions and fiducials in your PCB.</li>
-      <li>Click the "Get Rough Board Position" button. This process will tell the tool approximately where your board is in the machine.</li>
-      <li>As instructed by the panel at the bottom, jog the machine so that the gold cross in the camera view is centered on FID1. The "Jog to Fid in View" button can help center the camera on the fiducial once it's in the camera view. Then click the button in the instruction panel.</li>
-      <li>Perform the same step for FID2 and FID3.</li>
-      <li>As instructed by the panel, jog the paste extruder nozzle tip so that it's just barely touching the top surface of the PCB. Click the button in the panel to continue.</li>
-      <li>The positions in the Job Positions list are now updated to have positions based on your positioning. Try clicking on the circle icon in each entry to jog the machine to that position. If you picked the fiducial positions very accurately, the center of the camera should perfectly line up with the center of the pads on your PCB.</li>
-      <li>Try clicking on the "Perform Fiducial Cal" button. This will jog to the rough positions of the fiducials you chose previously and find their accurate position using machine vision. This is useful when running a job many times and quickly re-aligning a new board. If this fails, you can just precisely choose the fiducial position with the "Get Rough Board Position" button, can skip the fiducial calibration.</li>
-      <li>Click the "Nozzle Offset Cal" button beneath the camera view.</li>
-      <li>As instructed, jog the camera to be centered on any fiducial on the machine, and click continue.</li>
-      <li>The machine will move the nozzle tip close to the fiducial you chose. Jog the nozzle so that it is perfectly touching and centered on the fiducial.</li>
-      <li>Adjust the settings at the bottom of the page.
-        <ul>
-          <li>Dispense Degrees: The number of degrees the paste extrusion stepper motor spins to push paste out of the syringe per position.</li>
-          <li>Retraction Degrees: The number of degrees the paste extrusion stepper motor spins to retract after dispensing.</li>
-          <li>Dwell Milliseconds: The amount of time the nozzle waits on the substrate after dispensing and retracting.</li>
-          <li>Pre-Gcode: Gcode that is run at the start of the job.</li>
-          <li>Post-Gcode: Gcode that is run at the end of the job.</li>
-          <li>Invert Dispense: If checked, the paste extrusion stepper motor will spin in the opposite direction to dispense paste. This setting also applies to the jog commands in the jog panel.</li>
-        </ul>
-      </li>
+      <li>Click "Import Gerber" (in the Setup Checklist, or the Job Positions panel) and select your paste + mask gerber files, or a single zip of your fab output. Paste, mask, and board outline layers are detected automatically from file content - you don't pick which file is which.</li>
+      <li>The board view below the Job Positions list will populate: red dots are paste points, blue dots are fiducial candidates found on the mask layer, and a grey outline (if present) traces the board edge.</li>
+      <li>If the mask layer yielded at least 3 fiducial candidates, that's it - fiducials are picked automatically. If fewer than 3 were found, you'll be prompted to click FID1, FID2, then FID3 yourself in the board view; a picked candidate turns green. (You can also add fiducials manually later with "Capture New Position" - see below.)</li>
+      <li>The Job Positions list now shows every pad, grouped by component type (Resistors/Capacitors/ICs/Other) and then by component - click a group header to expand it. Each group has a checkbox to enable/disable every pad under it for the run; individual pads have their own checkbox too, and clicking a pad's dot directly in the board view toggles it the same way (a disabled pad draws as a dim hollow circle instead of a solid one, so it's still there to click back on).</li>
+      <li>To paste more than one board in the same job, click the "+" tab next to the board name before importing the next board's gerbers - each tab is a fully independent board with its own placements, fiducials, calibration, and nozzle offset. Don't switch tabs (or start another import) while a rough-position/fid-cal/nozzle-cal step below is still waiting on you - the app will refuse and tell you to finish or cancel it first, since doing so mid-step could otherwise apply that step's result to the wrong board.</li>
+      <li>Click "Get Rough Board Position" (Setup Checklist step 3, or the Job Positions panel). As instructed by the panel at the bottom of the page, jog the camera to be centered on FID1, then FID2, then FID3, clicking the panel's button to confirm each. Finally, jog the paste extruder nozzle tip so it's just barely touching the top surface of the board, and confirm. This gives the machine an approximate idea of where the board and its fiducials are, and stamps a starting Z height (nozzle-contact height) onto every fiducial.</li>
+      <li>The pad positions in the Job Positions list update to reflect this rough placement. Click the circle "move to" icon on any entry to jog the machine there and sanity-check the alignment.</li>
+      <li>If one side of the board sits higher or lower than the rest (a board that isn't perfectly flat, or is warped), you can fine-tune this without redoing the whole rough-position step: each fiducial's row has an editable Z field - nudging one fiducial's height re-fits a tilt plane across every pad's Z, instead of every pad sharing one flat height.</li>
+      <li>Click "Perform Fid Cal". This jogs to each fiducial's rough position and uses the camera to precisely center on it, replacing the rough alignment with an accurate one. This is required before a run - "Run Job" will refuse to start (with a message naming the board) if a board with enabled pads hasn't had this done yet. If it isn't finding fiducials reliably, try adjusting the Fiducial Confidence slider under the camera feed, or re-check the rough positions.</li>
+      <li>Click "Nozzle Offset Cal" (also in the Job Positions panel - note this is per-board, so it's worth re-checking after switching tabs or swapping tips). As instructed, jog the camera to be centered on any fiducial, confirm, then jog the nozzle tip so it's perfectly centered on and touching that same fiducial, and confirm again. The resulting offset (and the X/Y/Z Offset readout/adjustment buttons just above the board tabs) belongs to whichever board tab is currently active.</li>
+      <li>Review the dispense/extruder settings (Setup Checklist step 6 links straight to this): Dispense Degrees and Invert Dispense are on the Basic tab of the Extruder Settings panel (Retraction Degrees and Dwell Milliseconds also show up there, but only for Paste Extruder V1 Beta - V2's auger doesn't use them); Motion Speed, Extruder Speed, Pasting Motor Current, Air Assist, Travel Height, and Pre/Post-gcode are on the Global tab, since they apply across the whole job rather than one pattern. The Grid/Line/Staggered tabs tune how differently-shaped pads (large open pads, elongated pads, tight-pitch rows) get their own dot patterns automatically - changing a value there re-runs the currently loaded board's pads through it immediately, no re-import needed.</li>
     </ol>
 
     <h2>Job Setup from Captured Positions</h2>
     <ol>
-      <li>Jog the nozzle tip to the first location you'd like to dispense paste.</li>
-      <li>Click the "Capture New Position" button, and a new position will appear in the list.</li>
-      <li>Repeat until you've captured all positions you'd like to dispense paste.</li>
-      <li>Do NOT click the "Nozzle Offset Cal" button beneath the camera view. Captured positions do not require an offset because they are captured with the nozzle tip and not the camera.</li>
+      <li>Jog the nozzle tip to the first location you'd like to dispense paste, at the exact height you want it to dispense at.</li>
+      <li>Click "Capture New Position" (in the Job Positions panel) - a new position appears in the list, added to whichever board tab is currently active, at exactly the machine's current X/Y/Z.</li>
+      <li>Repeat until you've captured every position you'd like to dispense paste at.</li>
+      <li>A captured point is already a real machine position, not a gerber design-space one, so it doesn't need the fiducial-calibration transform gerber-imported pads get. If the same board tab also has gerber-imported pads that DO need "Nozzle Offset Cal" and fiducial calibration, those still apply to this board as a whole - a captured point's own position just isn't affected by them.</li>
+      <li>Note: re-running "Get Rough Board Position", "Perform Fid Cal", or editing a fiducial's Z field afterward will re-fit that board's Z-tilt plane across <em>every</em> pad on it, captured points included - so a captured point's height isn't necessarily permanent if you go recalibrate the board afterward.</li>
     </ol>
 
     <h2>Import/Export</h2>
 
-    After you've completed all the steps in either the Gerber setup or Captured Positions setup, you can export your job to be run later. Simply click the "Export Job" button at the bottom of the page and save the file on your computer. In a new session, just click the "Import Job" button at the top of the page to load your job back in. The job is just a JSON file, so it's easy to edit manually if you'd like to make your own adjustments.
-  
+    <p>Once you've completed setup (Gerber-based, captured, or a mix), export the job to run later: click "Export Job" (Setup Checklist step 7, or the Export/Run panel) and save the file. In a new session, click "Import Job" to load it back in. A saved job includes every board tab (not just whichever one was active when you saved), each board's own calibration and nozzle offset, and every setting on the Basic/Global/Grid/Line/Staggered tabs. Your hardware version choice (V1 Beta vs V2) is <em>not</em> part of the job file - it's remembered per-browser instead, since it describes which machine you're running, not the job. The job file is plain JSON, so it's easy to inspect or hand-edit if you'd like to make your own adjustments.</p>
+
     <h2>Running a Job</h2>
 
+    <p>With a job loaded and calibrated, click "Run Job" (Setup Checklist step 7, or the Export/Run panel). Before doing so, it's worth priming the extruder with the "Extrude" button in the jog panel - otherwise it can take a while for paste to actually start flowing once the run begins. If any board with enabled pads hasn't had "Perform Fid Cal" completed, the run will refuse to start and tell you which board(s) still need it, rather than dispensing at rough/uncalibrated positions.</p>
 
-    With a job loaded, you're set to run a job. Before actually clicking the "Run Job" button at the bottom of the page, extrude a bit using the jog button to prime the extruder. Otherwise, it will take a while for paste to start dispensing.
-    
-    While running, the utility will then dispense paste at every position in the job according to the settings and alignment in the job. At any time, you can click the button in the instruction panel to stop a job part-way though.
+    <p>A run pastes every board tab in the job, one after another, in a single pass - not just whichever tab happens to be open. While running, a toast at the bottom of the page shows the job is in progress; closing it cancels the run and parks the machine safely. Air Assist and Pasting Motor Current (Global settings tab) can be adjusted live while a run is in progress, and take effect on the very next point.</p>
 
     </div>
   </div>
@@ -134,6 +125,8 @@
     <p id="toast-content">test</p>
     <button id="toast-close" class="btn-close">➡️</button>
   </div>
+
+
 
   <div id="overlay"></div>
 </body>

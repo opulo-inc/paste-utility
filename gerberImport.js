@@ -818,6 +818,26 @@ function padLongAxisIsX(pad) {
     return pad.xSize >= pad.ySize
 }
 
+// Resolves the "mechanics" settings planPadDispense()/totalDispenseDegreesForPad()
+// use to place dots once a pad's already classified - as opposed to the
+// classification thresholds in classifyPad()/tagTightPitchPads(), which stay
+// board-wide for now (a pad's tight-pitch-ness depends on its neighbors,
+// possibly in a different component, so classifying it per-component doesn't
+// have a clean meaning yet). `overrides` is a per-component partial settings
+// object (see Job.componentOverrides in job.js) - any key it doesn't set
+// falls back to the board-wide Advanced Settings value.
+function resolveMechanicsSettings(overrides) {
+    return {
+        elongatedVolumeMultiplier: overrides?.elongatedVolumeMultiplier ?? ELONGATED_VOLUME_MULTIPLIER,
+        dotPitchMm: overrides?.dotPitchMm ?? DOT_PITCH_MM,
+        padEdgeInsetMm: overrides?.padEdgeInsetMm ?? PAD_EDGE_INSET_MM,
+        gridDotPitchMm: overrides?.gridDotPitchMm ?? GRID_DOT_PITCH_MM,
+        gridEdgeInsetMm: overrides?.gridEdgeInsetMm ?? GRID_EDGE_INSET_MM,
+        staggerOffsetFraction: overrides?.staggerOffsetFraction ?? STAGGER_OFFSET_FRACTION,
+        tightPitchVolumeMultiplier: overrides?.tightPitchVolumeMultiplier ?? TIGHT_PITCH_VOLUME_MULTIPLIER,
+    }
+}
+
 function classifyPad(pad) {
     const length = padLength(pad)
     const width = padWidth(pad)
@@ -842,10 +862,10 @@ function classifyPad(pad) {
 // split into many dots (a 16mm2 pad's 12 dots were getting 25 degrees each
 // instead of the ~110 the pad's real area calls for, because the 300-degree
 // ceiling was being spent once for the whole pad instead of once per dot).
-function totalDispenseDegreesForPad(pad, baseDispenseDegrees, kind) {
+function totalDispenseDegreesForPad(pad, baseDispenseDegrees, kind, mechanics) {
     let raw = baseDispenseDegrees * (pad.area / NOMINAL_0402_PAD_AREA_MM2)
-    if (kind === 'line') raw *= ELONGATED_VOLUME_MULTIPLIER
-    if (pad.tightPitch) raw *= TIGHT_PITCH_VOLUME_MULTIPLIER
+    if (kind === 'line') raw *= mechanics.elongatedVolumeMultiplier
+    if (pad.tightPitch) raw *= mechanics.tightPitchVolumeMultiplier
     return raw
 }
 
@@ -853,14 +873,24 @@ function clampDotDegrees(degrees) {
     return Math.min(MAX_DISPENSE_DEGREES, Math.max(MIN_DISPENSE_DEGREES, degrees))
 }
 
-// Returns dispense sub-points as {dx, dy, dispenseDegrees} offsets (mm) from
-// the pad center, splitting the pad's total (area-scaled) dispense volume
-// across however many dots the pattern needs - each dot's own share is what
-// gets clamped to [MIN,MAX]_DISPENSE_DEGREES, not the pad's total (see
-// totalDispenseDegreesForPad).
-export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
+// Returns {points, pattern}: points are dispense sub-points as {dx, dy,
+// dispenseDegrees} offsets (mm) from the pad center, splitting the pad's
+// total (area-scaled) dispense volume across however many dots the pattern
+// needs - each dot's own share is what gets clamped to
+// [MIN,MAX]_DISPENSE_DEGREES, not the pad's total (see
+// totalDispenseDegreesForPad). pattern is the pad's final classification
+// ('dot'/'line'/'grid'/'staggered') after the tight-pitch line->dot demotion
+// below - job.js stamps it onto each resulting Point as dispensePattern, for
+// the Job Positions list's per-component pattern badges/overrides.
+//
+// `overrides` (optional) is a per-component partial settings object (see
+// Job.componentOverrides) that only affects dot *placement* within whatever
+// pattern classifyPad() already picked - see resolveMechanicsSettings() for
+// why classification itself stays board-wide for now.
+export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0, overrides = null) {
+    const mechanics = resolveMechanicsSettings(overrides)
     let kind = classifyPad(pad)
-    const total = totalDispenseDegreesForPad(pad, baseDispenseDegrees, kind)
+    const total = totalDispenseDegreesForPad(pad, baseDispenseDegrees, kind, mechanics)
     const alongX = padLongAxisIsX(pad)
 
     // A gull-wing IC lead (elongated pad, normally 'line') that's sitting in a
@@ -875,21 +905,21 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
 
     if (kind === 'line') {
         const length = padLength(pad)
-        const usable = Math.max(length - 2 * PAD_EDGE_INSET_MM, 0.1)
+        const usable = Math.max(length - 2 * mechanics.padEdgeInsetMm, 0.1)
 
-        // Only split into multiple dots once there's a full DOT_PITCH_MM of
+        // Only split into multiple dots once there's a full dotPitchMm of
         // usable length to actually space them across - a pad just barely
         // over the elongated threshold clamps `usable` down near its 0.1mm
         // floor, and forcing a minimum of 2 dots there (the old
         // Math.max(2, ...)) placed them only ~0.1-0.3mm apart: well inside
         // each dot's own drawn radius, so they rendered right on top of each
         // other instead of as a real line pattern.
-        // DOT_PITCH_MM > 0 guards against a zero/negative Advanced Settings
+        // dotPitchMm > 0 guards against a zero/negative Advanced Settings
         // value (the Dot Pitch input's own min="0.1" only constrains the
         // spinner arrows, not a manually typed value) - dividing by it would
         // otherwise produce an Infinity/negative dotCount and the loop below
         // would never terminate, freezing the tab.
-        const dotCount = DOT_PITCH_MM > 0 && usable >= DOT_PITCH_MM ? Math.round(usable / DOT_PITCH_MM) + 1 : 1
+        const dotCount = mechanics.dotPitchMm > 0 && usable >= mechanics.dotPitchMm ? Math.round(usable / mechanics.dotPitchMm) + 1 : 1
         const spacing = dotCount > 1 ? usable / (dotCount - 1) : 0
 
         points = []
@@ -902,24 +932,24 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
             })
         }
     } else if (kind === 'grid') {
-        // Grid dots use a tighter pitch than a line does (GRID_DOT_PITCH_MM <
-        // DOT_PITCH_MM) - see its definition for why.
-        const usableX = Math.max(pad.xSize - 2 * GRID_EDGE_INSET_MM, 0.1)
-        const usableY = Math.max(pad.ySize - 2 * GRID_EDGE_INSET_MM, 0.1)
+        // Grid dots use a tighter pitch than a line does (gridDotPitchMm <
+        // dotPitchMm) - see GRID_DOT_PITCH_MM's definition for why.
+        const usableX = Math.max(pad.xSize - 2 * mechanics.gridEdgeInsetMm, 0.1)
+        const usableY = Math.max(pad.ySize - 2 * mechanics.gridEdgeInsetMm, 0.1)
 
         // As with the 'line' pattern above, only split an axis into multiple
-        // dots once there's a full GRID_DOT_PITCH_MM of usable room on that
+        // dots once there's a full gridDotPitchMm of usable room on that
         // axis - a wide, flat connector/screw-terminal pad (e.g. J-type
         // parts) is big enough in area to classify as 'grid' but often has
         // one short axis that clamps down near its 0.1mm floor. Forcing a
         // minimum of 2 rows/cols there (the old Math.max(2, ...)) placed
         // that axis's two dot rows/columns only ~0.1mm apart - on top of
         // each other instead of a real grid.
-        // GRID_DOT_PITCH_MM > 0 guards against a zero/negative Advanced
-        // Settings value the same way DOT_PITCH_MM is guarded above - see
+        // gridDotPitchMm > 0 guards against a zero/negative Advanced
+        // Settings value the same way dotPitchMm is guarded above - see
         // that comment.
-        const cols = GRID_DOT_PITCH_MM > 0 && usableX >= GRID_DOT_PITCH_MM ? Math.round(usableX / GRID_DOT_PITCH_MM) + 1 : 1
-        const rows = GRID_DOT_PITCH_MM > 0 && usableY >= GRID_DOT_PITCH_MM ? Math.round(usableY / GRID_DOT_PITCH_MM) + 1 : 1
+        const cols = mechanics.gridDotPitchMm > 0 && usableX >= mechanics.gridDotPitchMm ? Math.round(usableX / mechanics.gridDotPitchMm) + 1 : 1
+        const rows = mechanics.gridDotPitchMm > 0 && usableY >= mechanics.gridDotPitchMm ? Math.round(usableY / mechanics.gridDotPitchMm) + 1 : 1
         const stepX = cols > 1 ? usableX / (cols - 1) : 0
         const stepY = rows > 1 ? usableY / (rows - 1) : 0
         const dotCount = cols * rows
@@ -938,7 +968,15 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
         points = [{dx: 0, dy: 0, dispenseDegrees: clampDotDegrees(total)}]
     }
 
-    if (pad.tightPitch && kind === 'point' && staggerSign !== 0) {
+    // Final pattern name for whoever's placing this pad's dots - 'point'
+    // becomes 'staggered' once it's actually getting the alternating nudge
+    // below, so job.js can tag each Point with a name that also doubles as
+    // the Job Positions list's per-component pattern indicator/override key
+    // (see resolveMechanicsSettings() and Job.componentOverrides).
+    const isStaggered = pad.tightPitch && kind === 'point' && staggerSign !== 0
+    const pattern = isStaggered ? 'staggered' : (kind === 'point' ? 'dot' : kind)
+
+    if (isStaggered) {
         // Nudge the dot along the pad's own LONG axis, alternating direction
         // pad-to-pad (staggerSign - see computeAlternatingSigns), so a row of
         // closely spaced IC leads doesn't dispense as one continuous line.
@@ -946,7 +984,7 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
         // length) - the long axis gives far more room to separate adjacent
         // dots than nudging across the pad's (narrow, tight-pitch) width
         // would.
-        const desiredOffset = (padLength(pad) / 2) * STAGGER_OFFSET_FRACTION
+        const desiredOffset = (padLength(pad) / 2) * mechanics.staggerOffsetFraction
 
         // But never push the dot far enough that it (or its real dispensed
         // paste, which can spread wider than the on-screen indicator) could
@@ -966,7 +1004,7 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0) {
         }))
     }
 
-    return points
+    return { points, pattern }
 }
 
 // Deterministic bottom-to-top, left-to-right scan order (rows grouped by Y

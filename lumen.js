@@ -1,11 +1,12 @@
+// tipXoffset/tipYoffset/zOffset used to live here, but different boards on
+// the same bed can need different nozzle offsets (different heights, a tip
+// swap between boards, etc.) - they're per-board data now, owned by each
+// entry in Job.boards (see createEmptyBoard() in job.js) instead of this
+// shared, job-wide singleton.
 export class Lumen {
     constructor(serial){
         this.serial = serial;
         this.video = null;
-        this.tipXoffset = 0;
-        this.tipYoffset = 0;
-        this.zOffset = 0;
-
     }
 
     addVideoManager(videoManager){

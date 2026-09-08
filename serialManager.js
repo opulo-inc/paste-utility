@@ -18,6 +18,13 @@ export class serialManager {
         this.timeoutID = undefined;
         this.okWaitResolve = null;
 
+        // True for the whole duration of a send() call (every command in its
+        // array, not just one write) - lets callers that poll the board on a
+        // timer (e.g. the live machine-position readout in main.js) skip a
+        // tick rather than racing send()'s writer lock/ok-response state,
+        // which isn't reentrant.
+        this.sending = false;
+
         // Single source of truth for the ring light's on/off state - every
         // place that can change it (the toggle button, the forced-on at
         // connect time below) goes through setRingLights() so the UI can't
@@ -296,6 +303,7 @@ export class serialManager {
             return false;
         }
 
+        this.sending = true;
         const writer = await this.port.writable.getWriter()
         try {
             for (const element of commandArray) {
@@ -325,6 +333,7 @@ export class serialManager {
             return false;
         } finally {
             writer.releaseLock()
+            this.sending = false;
         }
 
         return true;

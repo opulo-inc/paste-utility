@@ -80,7 +80,9 @@ label {
 }
 
 #header-pill {
-  
+  display: flex;
+  align-items: center;
+  gap: 14px;
   height: 25px;
   border-radius: 10px;
   text-align: center;
@@ -94,6 +96,110 @@ label {
   padding-bottom:1.5em;
   /* box-shadow:0 1px 10px 0 rgba(230, 230, 230, 0.532); */
 
+}
+
+#hardwareVersionSelect {
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--button-bg);
+  background-color: white;
+  color: #222;
+  font-size: 0.85rem;
+}
+
+/* Hides #top-controls/#main-app/#footer until a hardware version has been
+   chosen (see applyHardwareVersion() in main.js) - an ID selector like
+   #main-app's own `display: flex` would otherwise beat the `hidden`
+   attribute's UA-stylesheet default, so this needs its own !important rule
+   rather than relying on plain `hidden`. */
+.hw-locked {
+  display: none !important;
+}
+
+/* Hides Retraction Degrees/Dwell Milliseconds (Basic Extruder Settings) when
+   Paste Extruder V2 (auger) is selected - see applyHardwareVersion() in
+   main.js. augerDispenseCommands() never reads either value, only
+   plungerDispenseCommands() (V1 Beta) does. */
+.hw-plunger-only.hw-hidden-for-hw {
+  display: none !important;
+}
+
+/* Full-screen gate shown on first visit (no hardware version saved yet) -
+   see applyHardwareVersion()/setupHardwareGate() in main.js. Higher z-index
+   than #modal/#toast (5) since nothing else should be reachable behind it. */
+#hardwareGate {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.92);
+}
+
+#hardwareGate.visible {
+  display: flex;
+}
+
+.hardware-gate-card {
+  background-color: #fff;
+  border-radius: 12px;
+  padding: 40px 48px;
+  max-width: 520px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.hardware-gate-card img {
+  height: 48px;
+  margin-bottom: 16px;
+}
+
+.hardware-gate-card h2 {
+  margin-bottom: 10px;
+}
+
+.hardware-gate-card p {
+  color: #555;
+  margin-bottom: 24px;
+}
+
+.hardware-gate-options {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.hardware-gate-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 16px;
+  border: 2px solid var(--button-bg);
+  border-radius: 8px;
+  background-color: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.hardware-gate-option:hover {
+  background-color: #fdf3dd;
+}
+
+.hardware-gate-option:active {
+  transform: scale(0.98);
+}
+
+.hardware-gate-option-title {
+  font-weight: 700;
+  color: #222;
+}
+
+.hardware-gate-option-desc {
+  font-size: 0.85em;
+  color: #666;
 }
 
 #connect {
@@ -139,6 +245,71 @@ label {
   background-color: #f5f5f5;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Movable/resizable panel shell - wraps every major section in #leftColumn
+   and #rightColumn (see the .panel-drag-handle at the top of each in
+   index.html). Reordering (drag the handle up/down within its column) and
+   resize persistence are wired up by setupPanels() in main.js; the resize
+   itself is just the browser's native corner-drag handle. */
+.panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel.dragging {
+  opacity: 0.4;
+}
+
+.panel-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  border-radius: 6px 6px 0 0;
+  background-color: #e9e9e9;
+  color: #999;
+  font-size: 10px;
+  letter-spacing: 2px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.panel-drag-handle:hover {
+  background-color: #ddd;
+  color: #666;
+}
+
+.panel-drag-handle:active {
+  cursor: grabbing;
+}
+
+.panel-body {
+  resize: vertical;
+  overflow: auto;
+  min-height: 48px;
+}
+
+/* The visualization panel's canvas fills whatever height the panel-body
+   resize handle gives it (see .gerber-visualization-container's height:100%)
+   - this just picks the starting height, matching the fixed 60vh it used to
+   have before it became user-resizable. */
+.panel[data-panel-id="job-positions"] .panel-body {
+  /* .positions-section fills this at height:100% (see its own rule), so
+     resizing this panel now actually grows/shrinks .positions-list's
+     scrollable area instead of the list staying capped at a fixed height
+     regardless of the panel around it. */
+  height: 440px;
+  min-height: 180px;
+}
+
+.panel[data-panel-id="visualization"] .panel-body {
+  height: 60vh;
+  min-height: 320px;
 }
 
 #capture, #gerber, #sliceSettings, #generatedDiv, #repl {
@@ -291,6 +462,30 @@ label {
   flex: 1;
 }
 
+/* Editable fiducial X/Y/Z boxes (see createPositionElement() in job.js) -
+   X/Y feed straight into recalibrateFromFiducialEdit()'s affine-transform
+   recompute once all three fiducials have a value. */
+.fid-coord-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  font-size: 0.85em;
+}
+
+.fid-coord-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.fid-coord-group .fid-coord-input {
+  width: 72px;
+  padding: 2px 5px;
+  font-size: 0.95em;
+}
+
 .position-item .button-group {
   display: flex;
   gap: 8px;
@@ -431,6 +626,99 @@ label {
   background: #f5f5f5;
 }
 
+.group-actions .overrides-btn {
+  color: #666;
+}
+
+/* Doubles as the "this component has an override" indicator - see
+   renderComponentGroup() in job.js. */
+.group-actions .overrides-btn.active {
+  color: #fff;
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+}
+
+/* Per-pad/per-component dispense-pattern indicator (see Job.dispensePattern
+   in job.js) - shown next to a pad row's position text and, for the set of
+   patterns a whole component uses, next to its refdes in the group header. */
+.pattern-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  margin-right: 6px;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.pattern-badge.pattern-line { background: #2196F3; }
+.pattern-badge.pattern-grid { background: #8b6508; }
+.pattern-badge.pattern-staggered { background: #9c27b0; }
+
+/* Per-component override editor (see renderComponentOverridesPanel() in
+   job.js) - opened by a component header's ⚙ button, sits between the
+   header and (if also expanded) its pad list. */
+.component-overrides-panel {
+  margin: 0 0 8px 16px;
+  padding: 10px 12px;
+  background-color: #fbfbfb;
+  border: 1px solid #dee2e6;
+  border-left: 3px solid var(--button-bg);
+  border-radius: 4px;
+}
+
+.overrides-note {
+  margin: 0 0 8px 0;
+  font-size: 0.8em;
+  color: #666;
+}
+
+.override-field-group {
+  margin-bottom: 8px;
+}
+
+.override-field-group:last-child {
+  margin-bottom: 0;
+}
+
+.override-group-title {
+  font-size: 0.78em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+/* Highlights the section(s) matching whatever patterns this component's
+   pads actually use right now - see the `patterns` set in
+   renderComponentGroup()/renderComponentOverridesPanel(). */
+.override-field-group.active-pattern .override-group-title {
+  color: var(--button-bg);
+}
+
+.override-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.override-field-row .override-field-label {
+  flex: 1;
+  font-size: 0.88em;
+}
+
+.override-field-row .override-value {
+  width: 80px;
+  padding: 3px 6px;
+  font-size: 0.85em;
+}
+
 .positions-header {
   flex-wrap: wrap;
   gap: 8px;
@@ -442,8 +730,19 @@ label {
   margin-left: auto;
 }
 
-/* Advanced Settings tab switcher - Basic (Extruder Settings) vs Advanced
-   (paste-dispense pattern tuning from gerberImport.js's tunable constants). */
+/* Per-board nozzle offset controls (see Job.tipXoffset/tipYoffset/zOffset) -
+   sits between the Job Positions header and the board tabs, tighter than the
+   default .settings-row spacing since it's just 3 small items. */
+.board-offsets-row {
+  gap: 20px;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+  padding: 0;
+}
+
+/* Settings tab switcher - Basic (Extruder Settings) plus one tab per
+   paste-dispense pattern's tuning (Global classification thresholds, Grid,
+   Line, Staggered - see gerberImport.js's tunable constants). */
 .settings-tabs {
   display: flex;
   gap: 4px;
@@ -475,12 +774,6 @@ label {
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 1rem;
-}
-
-.advanced-settings-group h3 {
-  margin: 0 0 0.75rem 0;
-  color: #333;
-  font-size: 1rem;
 }
 
 .advanced-settings-note {
@@ -1290,6 +1583,33 @@ select:focus {
   margin-bottom: 0;
 }
 
+/* Live machine position readout (see pollMachinePosition() in main.js) -
+   sits above the jog buttons since that's the control most people check it
+   against. */
+.machine-position-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 0.75rem;
+  padding: 6px 10px;
+  background-color: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.machine-position-label {
+  font-family: "Figtree", sans-serif;
+  font-weight: 600;
+  color: #666;
+}
+
+.machine-position-axis {
+  color: #222;
+}
+
 .section-container {
   background-color: #f5f5f5;
   border: 1px solid var(--accent-color);
@@ -1308,11 +1628,105 @@ select:focus {
   border-radius: 8px;
 }
 
+/* Setup Checklist (import panel) - walks a user through connecting, loading
+   a job, calibrating, and running it end to end from one spot, instead of
+   hunting each step's control down across separate panels. Each step's
+   .checklist-action just forwards its click to the real control that already
+   lives elsewhere (see setupSetupChecklist() in main.js) - one source of
+   truth for the actual logic, this is only a guided front door to it. */
+.checklist-heading {
+  margin: 0 0 10px 0;
+  font-size: 1.3em;
+}
+
+.setup-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.checklist-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 4px;
+  border-bottom: 1px solid #eee;
+  transition: opacity 0.2s ease;
+}
+
+.checklist-step:last-child {
+  border-bottom: none;
+}
+
+.checklist-num {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--button-bg);
+  color: var(--button-bg);
+  font-weight: 700;
+  font-size: 0.85em;
+}
+
+.checklist-step.done .checklist-num {
+  background-color: #3a9d4f;
+  border-color: #3a9d4f;
+  color: white;
+}
+
+.checklist-step.done .checklist-num::before {
+  content: "\2713";
+}
+
+.checklist-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.checklist-title {
+  font-weight: 600;
+  color: #222;
+}
+
+.checklist-desc {
+  font-size: 0.85em;
+  color: #666;
+  margin-top: 2px;
+}
+
+.checklist-action-group {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.checklist-step.locked {
+  opacity: 0.5;
+}
+
+.checklist-step.locked .checklist-action {
+  cursor: not-allowed;
+}
+
+/* Momentary flash used to draw the eye to a panel the checklist just
+   scrolled to (see the "Go to Settings" step). */
+.panel.checklist-highlight {
+  outline: 3px solid var(--button-hover);
+  outline-offset: 2px;
+}
+
 .settings-container {
   display: flex;
   flex-direction: column;
   gap: 20px;
   width: 100%;
+  height: 100%;
 }
 
 .settings-section {
@@ -1398,7 +1812,8 @@ select:focus {
   color: #000000;
   display: flex;
   flex-direction: column;
-  max-height: 400px;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .positions-section h2 {
@@ -1411,6 +1826,65 @@ select:focus {
   align-items: center;
   margin-bottom: 1rem;
   flex-shrink: 0;
+}
+
+/* One tab per pasted board (see this.boards in job.js / renderBoardTabs()),
+   plus a "+" to paste another. Only the active board's placements/fiducials
+   show in .positions-list below; the point-viz canvas still draws every
+   board regardless of which tab is open. */
+.board-tabs-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
+.board-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  color: #666;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px 4px 0 0;
+  box-shadow: none;
+}
+
+.board-tab:hover {
+  background-color: #f0f0f0;
+  transform: none;
+}
+
+.board-tab.active {
+  background-color: var(--button-bg);
+  color: #000;
+}
+
+.board-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.board-tab-close:hover {
+  background-color: rgba(0, 0, 0, 0.15);
+}
+
+.board-tab-add {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #666;
 }
 
 .positions-list {
@@ -1457,24 +1931,25 @@ select:focus {
 }
 
 .gerber-visualization {
-  flex: 2;
+  height: 100%;
   padding: 20px;
   background-color: #ffffff;
   border: 1px solid var(--accent-color);
   border-radius: 8px;
   display:flex;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .gerber-visualization-container {
   position: relative;
   width: 100%;
-  /* Scales with the browser window's height rather than being forced to a
-     fixed 1:1 aspect ratio - drawJobToCanvas() already fits the board into
-     whatever rectangle it's given. */
-  height: 60vh;
-  min-height: 320px;
-  max-height: 900px;
+  /* Fills whatever height the surrounding .panel-body's resize handle gives
+     it - drawJobToCanvas() already fits the board into whatever rectangle
+     it's given. The starting height (and its min-height floor) live on
+     .panel[data-panel-id="visualization"] .panel-body instead, since that's
+     the element the resize handle now actually controls. */
+  height: 100%;
 }
 
 .gerber-visualization-controls {
@@ -1497,6 +1972,30 @@ select:focus {
 .gerber-visualization-controls button.active {
   background-color: var(--button-hover);
   box-shadow: inset 0 0 0 2px #000;
+}
+
+.build-plate-controls {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: rgba(255, 255, 255, 0.85);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.build-plate-controls label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.build-plate-controls select {
+  padding: 3px 6px;
+  font-size: 0.8rem;
 }
 
 .export-section {
