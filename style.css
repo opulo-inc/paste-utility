@@ -79,6 +79,20 @@ label {
   color:#222;
 }
 
+/* Wraps #header-pill and #top-controls so the title and the Docs/Connect/
+   etc. buttons sit on one row instead of #top-controls' old 90%-width block
+   forcing itself onto its own line below the title (see #top-controls
+   below). Matches #main-app's 90% width so the whole page lines up. */
+#top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  width: 90%;
+  margin: 20px auto;
+  gap: 14px;
+}
+
 #header-pill {
   display: flex;
   align-items: center;
@@ -88,9 +102,6 @@ label {
   text-align: center;
   /* background-color: #222; */
   color:#eee;
-  margin-left:4%;
-  margin-top: 20px;
-  margin-bottom: 20px;
   padding-left:1em;
   padding-right:1em;
   padding-bottom:1.5em;
@@ -657,6 +668,38 @@ label {
 .pattern-badge.pattern-line { background: #2196F3; }
 .pattern-badge.pattern-grid { background: #8b6508; }
 .pattern-badge.pattern-staggered { background: #9c27b0; }
+
+/* Estimated paste-volume figure (see Job.pointPasteVolumeMm3() in job.js) -
+   shares the pattern-badge pill shape but its own muted color so it doesn't
+   read as another pattern type. */
+.pattern-badge.volume-badge { background: #546e7a; }
+
+/* Solder Stencil Thickness Equivalent / Dispense Nozzle preset rows (Basic
+   settings tab) - a preset dropdown plus its editable value box, see
+   index.html's #basicSettingsPanel and main.js's calibration wiring. */
+.preset-select-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.preset-select-row select {
+  padding: 0.5rem 0.6rem;
+}
+
+.preset-select-row input[type="number"] {
+  width: 70px;
+}
+
+/* Board paste-volume total, above the Job Positions list (see
+   Job.renderPasteVolumeSummary() in job.js). Empty (and collapses to no
+   height) until a board's pads are loaded. */
+.paste-volume-summary {
+  font-size: 0.85em;
+  color: #555;
+  padding: 2px 4px 6px;
+}
 
 /* Per-component override editor (see renderComponentOverridesPanel() in
    job.js) - opened by a component header's ⚙ button, sits between the
@@ -1364,11 +1407,9 @@ select:focus {
 
 #top-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
-  margin: 10px auto;
-  padding: 0 20px;
-  width: 90%;
   justify-content: flex-end;
 }
 
@@ -1378,8 +1419,6 @@ select:focus {
   border: 1px solid #ccc;
   background-color: white;
   height: auto;
-  margin-top: 20px;
-  margin-bottom: 20px;
 }
 
 .control-container {
@@ -1621,21 +1660,71 @@ select:focus {
   gap: 20px;
 }
 
-.import-section {
-  padding: 20px;
+/* Setup Checklist - a floating, closable popup (toggled by #setupChecklistToggle
+   in #top-controls, see setupSetupChecklist() in main.js) that walks a user
+   through connecting, loading a job, calibrating, and running it end to end
+   from one spot, instead of hunting each step's control down across separate
+   panels. Each step's .checklist-action just forwards its click to the real
+   control that already lives elsewhere - one source of truth for the actual
+   logic, this is only a guided front door to it. It floats above the rest of
+   the page WITHOUT a dimming overlay (unlike #modal) since its whole point is
+   to stay open while the user operates the real controls elsewhere on the
+   page. */
+.floating-popup {
+  display: none;
+  flex-direction: column;
+  position: fixed;
+  top: 90px;
+  right: 20px;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 110px);
   background-color: #ffffff;
-  border: 1px solid var(--accent-color);
-  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  z-index: 4;
+  overflow: hidden;
 }
 
-/* Setup Checklist (import panel) - walks a user through connecting, loading
-   a job, calibrating, and running it end to end from one spot, instead of
-   hunting each step's control down across separate panels. Each step's
-   .checklist-action just forwards its click to the real control that already
-   lives elsewhere (see setupSetupChecklist() in main.js) - one source of
-   truth for the actual logic, this is only a guided front door to it. */
+.floating-popup.visible {
+  display: flex;
+}
+
+.floating-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex: 0 0 auto;
+  cursor: move;
+  touch-action: none;
+}
+
+/* Applied to <body> while a drag is in progress (see setupSetupChecklist()
+   in main.js) so text elsewhere on the page doesn't get selected as the
+   pointer sweeps over it mid-drag. */
+body.dragging-popup {
+  user-select: none;
+}
+
+.floating-popup-header .btn-close {
+  background: #333;
+  color: #eee;
+  border-radius: 50%;
+  padding: 0.3rem 0.6rem;
+  flex: 0 0 auto;
+}
+
+.floating-popup-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+
 .checklist-heading {
-  margin: 0 0 10px 0;
+  margin: 0;
   font-size: 1.3em;
 }
 
@@ -1647,17 +1736,27 @@ select:focus {
   flex-direction: column;
 }
 
+/* Stacked layout (number+title/desc on top, action button(s) below,
+   indented to align under the title) rather than a single wide row - this
+   popup is narrow (see .floating-popup), so a side-by-side row would
+   squeeze the title/desc text down to near-nothing and wrap it badly. */
 .checklist-step {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 4px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 4px;
   border-bottom: 1px solid #eee;
   transition: opacity 0.2s ease;
 }
 
 .checklist-step:last-child {
   border-bottom: none;
+}
+
+.checklist-step-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
 }
 
 .checklist-num {
@@ -1672,6 +1771,7 @@ select:focus {
   color: var(--button-bg);
   font-weight: 700;
   font-size: 0.85em;
+  margin-top: 2px;
 }
 
 .checklist-step.done .checklist-num {
@@ -1703,7 +1803,13 @@ select:focus {
 .checklist-action-group {
   display: flex;
   gap: 8px;
-  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.checklist-action,
+.checklist-action-group {
+  margin-left: 40px;
+  align-self: flex-start;
 }
 
 .checklist-step.locked {
@@ -1972,6 +2078,16 @@ select:focus {
 .gerber-visualization-controls button.active {
   background-color: var(--button-hover);
   box-shadow: inset 0 0 0 2px #000;
+}
+
+/* Paste/Mask overlay toggles carry a text label (unlike the icon-only +/-/⤢
+   buttons next to them), so they need real width and left/right padding
+   instead of the fixed 28px square - otherwise the label gets clipped. */
+.gerber-visualization-controls button.viz-toggle-label {
+  width: auto;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .build-plate-controls {

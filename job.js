@@ -1,5 +1,5 @@
 import {fromTriangles, applyToPoint, applyToPoints} from 'transformation-matrix';
-import {importGerberSet, tagTightPitchPads, computeAlternatingSigns, planPadDispense, groupPadsByComponent, findFiducialCandidates, COMPONENT_TYPE_ORDER, placementDotRadiusMm, getPasteDispenseSettings, setPasteDispenseSettings} from './gerberImport.js';
+import {importGerberSet, tagTightPitchPads, computeAlternatingSigns, planPadDispense, groupPadsByComponent, findFiducialCandidates, COMPONENT_TYPE_ORDER, placementDotRadiusMm, getPasteDispenseSettings, setPasteDispenseSettings, DEFAULT_STENCIL_THICKNESS_MM, DEFAULT_NOZZLE_GAUGE, DEFAULT_NOZZLE_GAUGE_RATIOS, NOZZLE_RATIO_STORAGE_KEY, padPasteVolumeMm3} from './gerberImport.js';
 
 // 'multipad'/'inferred' only ever appear for a board with no %TO.C%
 // component attributes at all - the pads are still real, but the grouping is
@@ -49,6 +49,16 @@ const BUILD_PLATES = {
     extended: { label: 'Extended (390 x 330mm)', width: 390, height: 330 },
 };
 const DEFAULT_BUILD_PLATE = 'standard';
+
+// Real machine X/Y the plate's own (0,0) - i.e. the bottom-left corner of
+// the working area drawn in drawJobToCanvas() - actually sits at. Lets a
+// board that's had a real fid-cal run (board.fidCalMatrix, see
+// transformPlacements()) be drawn at its TRUE position/rotation on the bed
+// instead of its nominal as-imported one: fidCalMatrix already maps design
+// coordinates to real machine coordinates, so subtracting this origin is the
+// last step to land in this canvas's plate-local frame. Purely a drawing
+// concern - nothing that touches gcode generation reads this.
+const PLATE_ORIGIN_MACHINE_MM = { x: 7, y: 162 };
 
 // Bottom-center keep-out box (mm) present on every build plate - oriented
 // with its long side running front-to-back (Y), not side-to-side.
@@ -103,6 +113,17 @@ function drawRoundedRectPath(ctx, x, y, w, h, r){
     ctx.closePath()
 }
 
+// Formats an estimated paste volume (mm3, numerically == microliters) for
+// display - small single-pad figures read better in nanoliters, a whole
+// board's total in microliters, so this just picks whichever keeps 2-3
+// significant figures on screen instead of a string of leading zeros.
+function formatVolumeMm3(volumeMm3){
+    if (volumeMm3 == null) return null;
+    const nanoliters = volumeMm3 * 1000;
+    if (nanoliters < 1000) return `${nanoliters.toFixed(nanoliters < 10 ? 2 : 1)} nL`;
+    return `${volumeMm3.toFixed(volumeMm3 < 10 ? 3 : 2)} µL`;
+}
+
 class Point {
     constructor(x, y, z, dispenseDegrees) {
 
@@ -130,6 +151,14 @@ class Point {
         // per-component pattern badges and which override fields a
         // component's overrides panel shows - see renderComponentGroup().
         this.dispensePattern = null;
+
+        // This dot's own share of its pad's real gerber-measured area (mm2) -
+        // see planPadDispense()'s padAreaMm2 in gerberImport.js. null for
+        // manually captured points, which never went through pad
+        // classification and so have no known pad geometry. Used only for
+        // the estimated paste-volume figures (see Job.stencilThicknessMm/
+        // pointPasteVolumeMm3()) - never for dispense degrees themselves.
+        this.padAreaMm2 = null;
 
         // Whether this point is included when the job runs - group checkboxes
         // in the Job Positions list flip this for every pad in a component (or
@@ -193,8 +222,10 @@ export class Job {
         // last gerber import - kept only for the optional "show pads"
         // overlay (see drawJobToCanvas), not persisted with the job, since
         // it's just a visual aid over the dispense points that already carry
-        // everything a run actually needs.
+        // everything a run actually needs. This toggle is the PASTE layer;
+        // showMaskPadOverlay below is the separate mask-layer toggle.
         this.showPadOverlay = false;
+        this.showMaskPadOverlay = false;
 
         // Which physical paste extruder hardware pointDispenseCommands()
         // should generate G-code for - 'v2' (current auger dispenser) or
@@ -209,6 +240,19 @@ export class Job {
         this.hardwareVersion = 'v2';
 
         this.dispenseDegrees = 30;
+        // Solder stencil thickness this job's boards are (or would be)
+        // printed with - purely an estimated-paste-volume input (see
+        // pointPasteVolumeMm3()/totalPasteVolumeMm3() below), independent of
+        // the dispenseDegrees calibration itself. The Basic tab's stencil
+        // preset buttons (main.js) set this and, separately, look up/save
+        // that thickness's own remembered dispenseDegrees calibration.
+        this.stencilThicknessMm = DEFAULT_STENCIL_THICKNESS_MM;
+        // Which preset nozzle tip this calibration was tuned for - along with
+        // stencilThicknessMm, the other half of the calibration-lookup key
+        // the Basic tab's dropdowns use (see calibrationStore in main.js).
+        // Purely a calibration-lookup label; never affects placement math or
+        // the paste-volume estimate directly.
+        this.nozzleGauge = DEFAULT_NOZZLE_GAUGE;
         // Only used by plungerDispenseCommands() (hardwareVersion 'v1-beta')
         // - how far (degrees) the plunger backs off after each dispense to
         // reduce stringing/ooze, and how long (ms) to then dwell in place so
@@ -310,8 +354,15 @@ export class Job {
             // this board's last gerber import - kept only for the optional
             // "show pads" overlay (see drawJobToCanvas), not persisted with
             // the job, since it's just a visual aid over the dispense points
-            // that already carry everything a run actually needs.
+            // that already carry everything a run actually needs. This is
+            // the PASTE layer - the layer dispenseDegrees/volume are actually
+            // computed from (see buildPlacementsFromPadShapes()).
             padShapes: [],
+            // Same, but the mask (copper-exposed opening) layer instead -
+            // shown by its own separate overlay toggle (showMaskPadOverlay)
+            // purely so paste vs. mask pad size can be visually compared.
+            // Never used for dispense math - only padShapes (paste) is.
+            maskPadShapes: [],
             // Board outline segments (mm, world space) from a gerber
             // Edge_Cuts/Profile layer, drawn for reference on the point-viz
             // canvas. See extractOutline() in gerberImport.js.
@@ -374,11 +425,13 @@ export class Job {
             point.refdes = p.refdes ?? null;
             point.componentType = p.componentType ?? null;
             point.dispensePattern = p.dispensePattern ?? null;
+            point.padAreaMm2 = p.padAreaMm2 ?? null;
             point.enabled = p.enabled !== false;
             return point;
         });
         board.boardOutline = data.boardOutline || [];
         board.padShapes = data.padShapes || [];
+        board.maskPadShapes = data.maskPadShapes || [];
         board.fiducials = (data.fiducials || []).map(f => {
             const fid = new Fiducial(f.x, f.y, f.z, f.searchX, f.searchY);
             fid.calX = f.calX;
@@ -428,6 +481,8 @@ export class Job {
 
     get padShapes(){ return this.activeBoard.padShapes; }
     set padShapes(v){ this.activeBoard.padShapes = v; }
+    get maskPadShapes(){ return this.activeBoard.maskPadShapes; }
+    set maskPadShapes(v){ this.activeBoard.maskPadShapes = v; }
 
     get boardOutline(){ return this.activeBoard.boardOutline; }
     set boardOutline(v){ this.activeBoard.boardOutline = v; }
@@ -531,7 +586,16 @@ export class Job {
         const canvas = this.jobCanvas;
         const container = canvas.closest('.gerber-visualization-container') ?? canvas.parentElement;
         const minZoom = 0.5;
-        const maxZoom = 30;
+        // High enough to fill the whole canvas with a single 0402 pad
+        // (~0.6mm) at any panel size: effective on-screen scale is
+        // fitScale * view.scale, and fitScale itself is ~canvasSize/429 (the
+        // standard plate's width plus its 5%-of-max margin on each side, see
+        // drawJobToCanvas()) - so the view.scale needed to fill ~90% of the
+        // canvas with a 0.6mm pad works out to roughly 0.9*429/0.6 ≈ 640,
+        // independent of the actual canvas pixel size. 1000 leaves headroom
+        // to go a bit tighter than that (e.g. to inspect one dispense dot
+        // within the pad) without maxing out the slider.
+        const maxZoom = 1000;
 
         // Keep the canvas's backing pixel resolution matched to its on-screen
         // size so the drawing stays sharp (rather than a fixed 500x500 bitmap
@@ -651,13 +715,17 @@ export class Job {
             });
         }
 
+        // 2x per click (not the wheel-zoom's much finer per-notch step) so
+        // reaching the very top of the now-much-taller maxZoom range - all
+        // the way down to a single pad filling the screen - doesn't take
+        // dozens of clicks.
         document.getElementById('vizZoomIn')?.addEventListener('click', () => {
             const rect = canvas.getBoundingClientRect();
-            this.zoomViewAt(rect.width / 2, rect.height / 2, Math.min(maxZoom, this.view.scale * 1.4));
+            this.zoomViewAt(rect.width / 2, rect.height / 2, Math.min(maxZoom, this.view.scale * 2));
         });
         document.getElementById('vizZoomOut')?.addEventListener('click', () => {
             const rect = canvas.getBoundingClientRect();
-            this.zoomViewAt(rect.width / 2, rect.height / 2, Math.max(minZoom, this.view.scale / 1.4));
+            this.zoomViewAt(rect.width / 2, rect.height / 2, Math.max(minZoom, this.view.scale / 2));
         });
         document.getElementById('vizZoomReset')?.addEventListener('click', () => this.resetView());
 
@@ -665,6 +733,13 @@ export class Job {
         togglePadsButton?.addEventListener('click', () => {
             this.showPadOverlay = !this.showPadOverlay;
             togglePadsButton.classList.toggle('active', this.showPadOverlay);
+            this.drawJobToCanvas();
+        });
+
+        const toggleMaskPadsButton = document.getElementById('vizToggleMaskPads');
+        toggleMaskPadsButton?.addEventListener('click', () => {
+            this.showMaskPadOverlay = !this.showMaskPadOverlay;
+            toggleMaskPadsButton.classList.toggle('active', this.showMaskPadOverlay);
             this.drawJobToCanvas();
         });
     }
@@ -739,8 +814,9 @@ export class Job {
         return { minX, minY, maxX, maxY };
     }
 
-    // Permanently shifts every board coordinate - placements, fiducials, pad
-    // footprints, and the outline - by (dx, dy) world mm. This is the only
+    // Permanently shifts every board coordinate - placements, fiducials, both
+    // pad-footprint overlays (paste and mask), and the outline - by (dx, dy)
+    // world mm. This is the only
     // thing that ever moves a loaded board: the point-viz canvas's world
     // frame IS the machine bed frame, so a committed drag has to become the
     // board's real position rather than a separate on-canvas-only offset -
@@ -756,6 +832,7 @@ export class Job {
         for (const p of this.placements) { p.x += dx; p.y += dy; }
         for (const f of this.fiducials) { f.x += dx; f.y += dy; }
         for (const pad of this.padShapes) { pad.x += dx; pad.y += dy; }
+        for (const pad of this.maskPadShapes) { pad.x += dx; pad.y += dy; }
         for (const seg of this.boardOutline) {
             seg.x1 += dx; seg.x2 += dx;
             seg.y1 += dy; seg.y2 += dy;
@@ -921,6 +998,27 @@ export class Job {
             const dragY = isActive ? this.dragPreview.y : 0;
             const hasOutline = board.boardOutline && board.boardOutline.length > 0;
 
+            // A board with a real fid-cal run (board.fidCalMatrix - see
+            // transformPlacements()) draws at its TRUE rotation/position on
+            // the bed instead of its nominal as-imported one: fidCalMatrix
+            // already maps design coords to real machine coords, so this
+            // just finishes the trip into plate-local coords (see
+            // PLATE_ORIGIN_MACHINE_MM) - "fits the outline" automatically
+            // whenever the board was actually taped down within the real
+            // working area. dragPreview is ignored once calibrated - the
+            // position is real now, not a preview to nudge. calRotationDeg
+            // (atan2 of the matrix's linear part) gets added to every pad's
+            // own rotationDeg below so drawn pad shapes turn with the board,
+            // not just their center points.
+            const calMatrix = board.fidCalMatrix;
+            const calRotationDeg = calMatrix ? Math.atan2(calMatrix.b, calMatrix.a) * 180 / Math.PI : 0;
+            const boardPoint = calMatrix
+                ? (x, y) => {
+                    const [mx, my] = applyToPoint(calMatrix, [x, y]);
+                    return [mx - PLATE_ORIGIN_MACHINE_MM.x, my - PLATE_ORIGIN_MACHINE_MM.y];
+                }
+                : (x, y) => [x + dragX, y + dragY];
+
             ctx.save();
             if (!isActive) ctx.globalAlpha = 0.45;
 
@@ -930,10 +1028,12 @@ export class Job {
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 for (const seg of board.boardOutline) {
-                    const x1 = toCanvasX(seg.x1 + dragX);
-                    const y1 = toCanvasY(seg.y1 + dragY);
-                    const x2 = toCanvasX(seg.x2 + dragX);
-                    const y2 = toCanvasY(seg.y2 + dragY);
+                    const [wx1, wy1] = boardPoint(seg.x1, seg.y1);
+                    const [wx2, wy2] = boardPoint(seg.x2, seg.y2);
+                    const x1 = toCanvasX(wx1);
+                    const y1 = toCanvasY(wy1);
+                    const x2 = toCanvasX(wx2);
+                    const y2 = toCanvasY(wy2);
                     ctx.moveTo(x1, canvasHeight - y1);
                     ctx.lineTo(x2, canvasHeight - y2);
                 }
@@ -942,43 +1042,76 @@ export class Job {
 
             // Draw pad footprints (semi-transparent) under the fid/dispense
             // dots, so the dots' placement relative to the actual pad can be
-            // checked at a glance. Optional (toggled from the visualization
-            // controls) and only ever for the active board - it's a
-            // close-look tool for whichever board you're currently working on.
-            if (isActive && this.showPadOverlay && board.padShapes.length > 0) {
+            // checked at a glance. Two independent toggles (from the
+            // visualization controls): the paste layer (what actually gets
+            // dispensed on, and what dispenseDegrees/volume are computed
+            // from - see buildPlacementsFromPadShapes()) and the mask layer
+            // (the true copper-exposed opening, which some fabs/footprints
+            // make a different size than the paste aperture) can genuinely
+            // differ, and comparing them is exactly the point of having
+            // both. Only ever for the active board - a close-look tool for
+            // whichever board you're currently working on.
+            const drawPadOverlay = (pads, fillStyle, strokeStyle) => {
+                if (!pads || pads.length === 0) return;
                 ctx.save();
                 ctx.globalAlpha = 0.35;
-                ctx.fillStyle = "#b8860b";
-                ctx.strokeStyle = "#8b6508";
+                ctx.fillStyle = fillStyle;
+                ctx.strokeStyle = strokeStyle;
                 ctx.lineWidth = 1;
 
-                for (const pad of board.padShapes) {
-                    const cx = toCanvasX(pad.x + dragX);
-                    const cy = canvasHeight - toCanvasY(pad.y + dragY);
+                for (const pad of pads) {
+                    const [wx, wy] = boardPoint(pad.x, pad.y);
+                    const cx = toCanvasX(wx);
+                    const cy = canvasHeight - toCanvasY(wy);
                     const w = Math.max((pad.xSize ?? pad.diameter ?? 0.3) * scale, 1);
                     const h = Math.max((pad.ySize ?? pad.diameter ?? 0.3) * scale, 1);
 
+                    ctx.save();
+                    ctx.translate(cx, cy);
+                    // pad.rotationDeg (see roundedRectGeometry() in
+                    // gerberImport.js) is a standard CCW angle in world space
+                    // (Y-up), plus calRotationDeg if this board is
+                    // calibrated (so the pad's drawn shape turns with the
+                    // board's real rotation, not just its center point);
+                    // canvas Y is flipped for display (cy above), which
+                    // reverses rotation handedness, so the canvas-space angle
+                    // is the negative of that total. Without this, a rotated
+                    // pad drew as an axis-aligned (and, since its
+                    // xSize/ySize are now the true LOCAL dimensions, often
+                    // wrong-shaped) box instead of its real rotated outline.
+                    const totalRotationDeg = (pad.rotationDeg || 0) + calRotationDeg;
+                    if (totalRotationDeg) ctx.rotate(-totalRotationDeg * Math.PI / 180);
+
                     ctx.beginPath();
                     if (pad.shape === 'circle' || pad.shape === 'polygon') {
-                        ctx.arc(cx, cy, Math.max(w, h) / 2, 0, Math.PI * 2);
+                        ctx.arc(0, 0, Math.max(w, h) / 2, 0, Math.PI * 2);
                     } else if (pad.shape === 'obround') {
-                        drawRoundedRectPath(ctx, cx - w / 2, cy - h / 2, w, h, Math.min(w, h) / 2);
+                        drawRoundedRectPath(ctx, -w / 2, -h / 2, w, h, Math.min(w, h) / 2);
                     } else {
-                        ctx.rect(cx - w / 2, cy - h / 2, w, h);
+                        ctx.rect(-w / 2, -h / 2, w, h);
                     }
                     ctx.fill();
                     ctx.stroke();
+                    ctx.restore();
                 }
 
                 ctx.restore();
+            };
+
+            if (isActive && this.showPadOverlay) {
+                drawPadOverlay(board.padShapes, "#b8860b", "#8b6508");
+            }
+            if (isActive && this.showMaskPadOverlay) {
+                drawPadOverlay(board.maskPadShapes, "#2196F3", "#0d47a1");
             }
 
             // Draw fid points in blue
             ctx.fillStyle = "blue";
             for (let point of board.fiducials) {
 
-                const newX = toCanvasX(point.x + dragX);
-                const newY = toCanvasY(point.y + dragY);
+                const [wx, wy] = boardPoint(point.x, point.y);
+                const newX = toCanvasX(wx);
+                const newY = toCanvasY(wy);
 
                 point.canvasX = newX;
                 point.canvasY = newY;
@@ -999,8 +1132,9 @@ export class Job {
             // handler, and returnClosestPlacementFromClickCoordinates()),
             // and a hidden pad could never be clicked back on again.
             for (let point of board.placements) {
-                const newX = toCanvasX(point.x + dragX);
-                const newY = toCanvasY(point.y + dragY);
+                const [wx, wy] = boardPoint(point.x, point.y);
+                const newX = toCanvasX(wx);
+                const newY = toCanvasY(wy);
 
                 point.canvasX = newX;
                 point.canvasY = newY;
@@ -1137,16 +1271,39 @@ export class Job {
 
                 const overrides = this.componentOverrides.get(group.refdes);
                 const {points: dots, pattern} = planPadDispense(pad, parseFloat(this.dispenseDegrees), sign, overrides);
-                for (const {dx, dy, dispenseDegrees} of dots){
+                for (const {dx, dy, dispenseDegrees, padAreaMm2} of dots){
                     const point = new Point(pad.x + dx, pad.y + dy, 31.5, dispenseDegrees);
                     point.refdes = group.refdes;
                     point.componentType = group.type;
                     point.dispensePattern = pattern;
+                    point.padAreaMm2 = padAreaMm2 ?? null;
                     placements.push(point);
                 }
             }
         }
         return placements;
+    }
+
+    // Estimated paste volume (mm3, == microliters) for one dispense point,
+    // from its own share of its pad's real gerber-measured area (see
+    // planPadDispense()'s padAreaMm2 in gerberImport.js) times the job's
+    // current stencil thickness - NOT from its dispenseDegrees, so this stays
+    // a pure "what would print" figure independent of auger calibration
+    // tuning. null for points with no known pad geometry (manually captured
+    // points, fiducials).
+    pointPasteVolumeMm3(point){
+        if (point.padAreaMm2 == null) return null;
+        return padPasteVolumeMm3(point.padAreaMm2, this.stencilThicknessMm);
+    }
+
+    // Sums pointPasteVolumeMm3() across any list of points (a component's,
+    // a type's, a whole board's) - points with no known pad geometry just
+    // contribute 0, so a job with some manually captured points still gets a
+    // meaningful (if slightly under-counted) total instead of null.
+    totalPasteVolumeMm3(points){
+        let total = 0;
+        for (const p of points) total += this.pointPasteVolumeMm3(p) || 0;
+        return total;
     }
 
     // Re-runs EVERY board's pads through recomputeActiveBoardDispensePattern()
@@ -1310,6 +1467,7 @@ export class Job {
 
             board.boardOutline = outline;
             board.padShapes = pastePads;
+            board.maskPadShapes = maskFlashes;
 
             board.placements = this.buildPlacementsFromPadShapes(pastePads);
 
@@ -1625,6 +1783,12 @@ export class Job {
             console.log("fid cal complete: ", board.fiducials);
 
             this.loadJobIntoPositionList();
+            // board.fidCalMatrix (just set by transformPlacements() above) is
+            // what drawJobToCanvas() now uses to draw this board at its true
+            // calibrated position/rotation (see PLATE_ORIGIN_MACHINE_MM) -
+            // redraw now so that shows up immediately instead of waiting for
+            // some unrelated interaction to trigger the next one.
+            this.drawJobToCanvas();
         } finally {
             this._boardFlowActive = false;
         }
@@ -1639,6 +1803,7 @@ export class Job {
     // standalone rows, same as before this grouping existed.
     loadJobIntoPositionList(){
         this.renderBoardTabs();
+        this.renderPasteVolumeSummary();
 
         const positionsList = document.querySelector('.positions-list');
         positionsList.innerHTML = '';
@@ -1716,6 +1881,30 @@ export class Job {
         container.appendChild(addTab);
     }
 
+    // Total estimated paste volume line above the Job Positions list, for
+    // whichever board tab is active - only counts currently-enabled points,
+    // since a disabled pad/component/type won't actually dispense on a run.
+    // No-ops quietly if the summary element isn't in the DOM (e.g. an older
+    // cached index.html mid-deploy).
+    renderPasteVolumeSummary(){
+        const el = document.getElementById('pasteVolumeSummary');
+        if (!el) return;
+
+        const enabledPoints = this.placements.filter(p => p.enabled !== false);
+        if (enabledPoints.length === 0) {
+            el.textContent = '';
+            return;
+        }
+
+        const totalMm3 = this.totalPasteVolumeMm3(enabledPoints);
+        const knownCount = enabledPoints.filter(p => p.padAreaMm2 != null).length;
+        const caveat = knownCount < enabledPoints.length
+            ? ` (${enabledPoints.length - knownCount} manual point${enabledPoints.length - knownCount === 1 ? '' : 's'} not counted - no known pad size)`
+            : '';
+
+        el.textContent = `Estimated paste for this board: ${formatVolumeMm3(totalMm3)} at ${this.stencilThicknessMm}mm stencil equivalent${caveat}`;
+    }
+
     // A collapsible "Resistors" / "Capacitors" / "ICs" / "Other" section, with
     // a checkbox that enables/disables every pad in every component under it
     // (so a whole part type can be skipped for a run) and, when expanded, one
@@ -1726,6 +1915,7 @@ export class Job {
         const allEnabled = allPoints.every(p => p.enabled !== false);
         const anyEnabled = allPoints.some(p => p.enabled !== false);
         const expanded = this.expandedTypes.has(type);
+        const typeVolume = formatVolumeMm3(this.totalPasteVolumeMm3(allPoints));
 
         const header = document.createElement('div');
         header.className = 'component-type-header';
@@ -1733,7 +1923,7 @@ export class Job {
             <span class="group-chevron">${expanded ? '▾' : '▸'}</span>
             <input type="checkbox" class="group-enable-toggle" ${allEnabled ? 'checked' : ''}>
             <span class="group-label">${COMPONENT_TYPE_LABELS[type] || type}</span>
-            <span class="group-count">${byRefdes.size} part${byRefdes.size === 1 ? '' : 's'} · ${totalPads} pad${totalPads === 1 ? '' : 's'}</span>
+            <span class="group-count">${byRefdes.size} part${byRefdes.size === 1 ? '' : 's'} · ${totalPads} pad${totalPads === 1 ? '' : 's'}${typeVolume ? ` · ${typeVolume}` : ''}</span>
         `;
 
         const toggle = header.querySelector('.group-enable-toggle');
@@ -1784,6 +1974,7 @@ export class Job {
             `<span class="pattern-badge pattern-${p}">${p}</span>`
         ).join('');
         const hasOverride = this.componentOverrides.has(refdes);
+        const componentVolume = formatVolumeMm3(this.totalPasteVolumeMm3(points));
 
         const header = document.createElement('div');
         header.className = 'component-header';
@@ -1792,7 +1983,7 @@ export class Job {
             <input type="checkbox" class="group-enable-toggle" ${allEnabled ? 'checked' : ''}>
             <span class="group-label">${refdes}</span>
             ${patternBadges}
-            <span class="group-count">${points.length} pad${points.length === 1 ? '' : 's'}</span>
+            <span class="group-count">${points.length} pad${points.length === 1 ? '' : 's'}${componentVolume ? ` · ${componentVolume}` : ''}</span>
             <div class="group-actions">
                 <button class="overrides-btn${hasOverride ? ' active' : ''}" title="Per-component dispense overrides">⚙</button>
                 <button class="move-btn" title="Jog to this component">☉</button>
@@ -2095,6 +2286,7 @@ export class Job {
             this.expandedOverrides = new Set();
 
             this.showPadOverlay = data.showPadOverlay || false;
+            this.showMaskPadOverlay = data.showMaskPadOverlay || false;
 
             // Restores the Advanced Settings tab's paste-dispense pattern
             // tuning that produced this job's placements, if the file has it
@@ -2103,6 +2295,8 @@ export class Job {
             if (data.pasteDispenseSettings) setPasteDispenseSettings(data.pasteDispenseSettings);
 
             this.dispenseDegrees = data.dispenseDegrees || 30;
+            this.stencilThicknessMm = typeof data.stencilThicknessMm !== 'undefined' ? data.stencilThicknessMm : DEFAULT_STENCIL_THICKNESS_MM;
+            this.nozzleGauge = typeof data.nozzleGauge !== 'undefined' ? data.nozzleGauge : DEFAULT_NOZZLE_GAUGE;
             this.retractionDegrees = typeof data.retractionDegrees !== 'undefined' ? data.retractionDegrees : 1;
             this.dwellMilliseconds = typeof data.dwellMilliseconds !== 'undefined' ? data.dwellMilliseconds : 100;
             this.motionSpeed = data.motionSpeed || 35000;
@@ -2132,6 +2326,26 @@ export class Job {
             const jobInvertDispense = document.getElementById('jobInvertDispense');
 
             if (jobDispenseDeg) jobDispenseDeg.value = this.dispenseDegrees;
+
+            const jobStencilThicknessMm = document.getElementById('jobStencilThicknessMm');
+            if (jobStencilThicknessMm) jobStencilThicknessMm.value = this.stencilThicknessMm;
+            const jobStencilThicknessPreset = document.getElementById('jobStencilThicknessPreset');
+            if (jobStencilThicknessPreset) {
+                const hasOption = [...jobStencilThicknessPreset.options].some(o => o.value !== 'custom' && Number(o.value) === this.stencilThicknessMm);
+                jobStencilThicknessPreset.value = hasOption ? String(this.stencilThicknessMm) : 'custom';
+            }
+
+            const jobNozzleGaugePreset = document.getElementById('jobNozzleGaugePreset');
+            if (jobNozzleGaugePreset) jobNozzleGaugePreset.value = this.nozzleGauge;
+            const jobNozzleGaugeRatio = document.getElementById('jobNozzleGaugeRatio');
+            if (jobNozzleGaugeRatio) {
+                let ratio = DEFAULT_NOZZLE_GAUGE_RATIOS[this.nozzleGauge] ?? 1;
+                try {
+                    const stored = JSON.parse(localStorage.getItem(NOZZLE_RATIO_STORAGE_KEY) || '{}');
+                    if (stored[this.nozzleGauge] != null) ratio = stored[this.nozzleGauge];
+                } catch {}
+                jobNozzleGaugeRatio.value = ratio;
+            }
             if (jobRetractionDeg) jobRetractionDeg.value = this.retractionDegrees;
             if (jobDwellMs) jobDwellMs.value = this.dwellMilliseconds;
             if (jobMotionSpeed) jobMotionSpeed.value = this.motionSpeed;
@@ -2147,6 +2361,8 @@ export class Job {
 
             const togglePadsButton = document.getElementById('vizTogglePads');
             togglePadsButton?.classList.toggle('active', this.showPadOverlay);
+            const toggleMaskPadsButton = document.getElementById('vizToggleMaskPads');
+            toggleMaskPadsButton?.classList.toggle('active', this.showMaskPadOverlay);
 
             // Reflect whatever paste-dispense settings ended up active (either
             // restored above, or left at their current value) in the
@@ -2258,6 +2474,14 @@ export class Job {
             ? `<span class="pattern-badge pattern-${position.dispensePattern}">${position.dispensePattern}</span>`
             : '';
 
+        // Per-dot estimated paste volume (see Job.pointPasteVolumeMm3()) -
+        // absent for fiducials and manually captured points, which have no
+        // known pad geometry to base an estimate on.
+        const volumeMm3 = isFiducial ? null : this.pointPasteVolumeMm3(position);
+        const volumeBadge = volumeMm3 != null
+            ? `<span class="pattern-badge volume-badge" title="Estimated paste volume for this dot, at ${this.stencilThicknessMm}mm stencil equivalent">${formatVolumeMm3(volumeMm3)}</span>`
+            : '';
+
         if(isFiducial){
             newDiv.innerHTML = `
             <span class="position-text">Fiducial:</span>
@@ -2303,6 +2527,7 @@ export class Job {
             ${enableToggle}
             <span class="position-text">Position: X:${writtenX} Y:${writtenY} Z:${position.z}</span>
             ${patternBadge}
+            ${volumeBadge}
             <div class="button-group">
                 <button class="move-btn">☉</button>
                 ${dispenseButton}
@@ -2753,10 +2978,12 @@ export class Job {
                 refdes: p.refdes,
                 componentType: p.componentType,
                 dispensePattern: p.dispensePattern,
+                padAreaMm2: p.padAreaMm2,
                 enabled: p.enabled
             })),
             boardOutline: board.boardOutline,
             padShapes: board.padShapes,
+            maskPadShapes: board.maskPadShapes,
             fiducials: board.fiducials.map(f => ({
                 x: f.x,
                 y: f.y,
@@ -2783,8 +3010,11 @@ export class Job {
             boards: this.boards.map(board => this.serializeBoard(board)),
             activeBoardIndex: this.activeBoardIndex,
             showPadOverlay: this.showPadOverlay,
+            showMaskPadOverlay: this.showMaskPadOverlay,
             pasteDispenseSettings: getPasteDispenseSettings(),
             dispenseDegrees: this.dispenseDegrees,
+            stencilThicknessMm: this.stencilThicknessMm,
+            nozzleGauge: this.nozzleGauge,
             retractionDegrees: this.retractionDegrees,
             dwellMilliseconds: this.dwellMilliseconds,
             motionSpeed: this.motionSpeed,

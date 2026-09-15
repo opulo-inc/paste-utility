@@ -37,109 +37,127 @@
     </div>
   </div>
 
-  <div id="header-pill">
-    <h1>LumenPnP Pasting Utility</h1>
-    <select id="hardwareVersionSelect" title="Which LumenPnP paste extruder hardware you're running - changes how dispense G-code is generated">
-      <option value="" disabled>Select hardware version…</option>
-      <option value="v1-beta">Paste Extruder V1 Beta</option>
-      <option value="v2">Paste Extruder V2</option>
-    </select>
+  <div id="top-bar">
+    <div id="header-pill">
+      <h1>LumenPnP Pasting Utility</h1>
+      <select id="hardwareVersionSelect" title="Which LumenPnP paste extruder hardware you're running - changes how dispense G-code is generated">
+        <option value="" disabled>Select hardware version…</option>
+        <option value="v1-beta">Paste Extruder V1 Beta</option>
+        <option value="v2">Paste Extruder V2</option>
+      </select>
+    </div>
+    <div id="top-controls">
+      <input type="file" id="jobFile" accept=".json" style="display: none;" />
+      <input type="file" id="gerberFiles" accept=".zip,.gbr,.ger,.gtp,.gbp,.gts,.gbs,.pho,.art" multiple style="display: none;" />
+      <button id="importJob" class="goldenrod-button" type="button">Import Job</button>
+      <button id="importGerber" class="goldenrod-button" type="button">Import Gerber</button>
+      <button id="setupChecklistToggle" type="button" class="goldenrod-button">Setup Checklist</button>
+      <a href="help.html"><button id="helpButton" style="background-color:gray;height:40px;padding:10px;">Docs</button></a>
+      <select id="camera-select"></select>
+      <button id="connect" type="button">Connect</button>
+      <button id="disconnect" type="button">Disconnect</button>
+    </div>
   </div>
-  <div id="top-controls">
-    <a href="help.html"><button id="helpButton" style="background-color:gray;height:40px;padding:10px;">Docs</button></a>
-    <select id="camera-select"></select>
-    <button id="connect" type="button">Connect</button>
-    <button id="disconnect" type="button">Disconnect</button>
+
+  <div id="setupChecklistPopup" class="floating-popup">
+    <div class="floating-popup-header">
+      <h2 class="checklist-heading">Setup Checklist</h2>
+      <button id="setupChecklistClose" class="btn-close" type="button" title="Close">⨉</button>
+    </div>
+    <div class="floating-popup-body">
+      <ol class="setup-checklist" id="setupChecklist">
+
+        <li class="checklist-step" data-step="connect" id="checklistStepConnect">
+          <div class="checklist-step-main">
+            <span class="checklist-num">1</span>
+            <div class="checklist-body">
+              <div class="checklist-title">Connect to the machine</div>
+              <div class="checklist-desc">Plug the LumenPnP in over USB, then connect.</div>
+            </div>
+          </div>
+          <button class="goldenrod-button checklist-action" id="checklistConnect" type="button">Connect</button>
+        </li>
+
+        <li class="checklist-step" data-step="import" id="checklistStepImport">
+          <div class="checklist-step-main">
+            <span class="checklist-num">2</span>
+            <div class="checklist-body">
+              <div class="checklist-title">Import a job or gerber files</div>
+              <div class="checklist-desc">Load a saved job, or import gerbers to start a new one - see the Import Job/Import Gerber buttons in the header, next to Setup Checklist.</div>
+            </div>
+          </div>
+          <div class="checklist-action-group">
+            <button class="goldenrod-button checklist-action" id="checklistImportJob" type="button">Import Job</button>
+            <button class="goldenrod-button checklist-action" id="checklistImportGerber" type="button">Import Gerber</button>
+          </div>
+        </li>
+
+        <li class="checklist-step" data-step="roughpos" id="checklistStepRoughPos">
+          <div class="checklist-step-main">
+            <span class="checklist-num">3</span>
+            <div class="checklist-body">
+              <div class="checklist-title">Set the board's rough position</div>
+              <div class="checklist-desc">Jog to each fiducial, then to the board surface, so the machine roughly knows where the board sits.</div>
+            </div>
+          </div>
+          <button class="goldenrod-button checklist-action" id="checklistRoughPos" type="button">Get Rough Position</button>
+        </li>
+
+        <li class="checklist-step" data-step="fidcal" id="checklistStepFidCal">
+          <div class="checklist-step-main">
+            <span class="checklist-num">4</span>
+            <div class="checklist-body">
+              <div class="checklist-title">Calibrate on the fiducials</div>
+              <div class="checklist-desc">Auto-centers the camera on each fiducial to precisely locate the board.</div>
+            </div>
+          </div>
+          <button class="goldenrod-button checklist-action" id="checklistFidCal" type="button">Perform Fid Cal</button>
+        </li>
+
+        <li class="checklist-step" data-step="nozzlecal" id="checklistStepNozzleCal">
+          <div class="checklist-step-main">
+            <span class="checklist-num">5</span>
+            <div class="checklist-body">
+              <div class="checklist-title">Calibrate the nozzle offset</div>
+              <div class="checklist-desc">Optional, but recommended after swapping tips - aligns the dispense tip with the camera's view.</div>
+            </div>
+          </div>
+          <button class="goldenrod-button checklist-action" id="checklistNozzleCal" type="button">Nozzle Offset Cal</button>
+        </li>
+
+        <li class="checklist-step" data-step="settings" id="checklistStepSettings">
+          <div class="checklist-step-main">
+            <span class="checklist-num">6</span>
+            <div class="checklist-body">
+              <div class="checklist-title">Review dispense &amp; extruder settings</div>
+              <div class="checklist-desc">Check dispense degrees, speeds, and Z offsets before running.</div>
+            </div>
+          </div>
+          <button class="goldenrod-button checklist-action" id="checklistGoSettings" type="button">Go to Settings</button>
+        </li>
+
+        <li class="checklist-step" data-step="run" id="checklistStepRun">
+          <div class="checklist-step-main">
+            <span class="checklist-num">7</span>
+            <div class="checklist-body">
+              <div class="checklist-title">Export or run the job</div>
+              <div class="checklist-desc">Save the job for later, or run it now.</div>
+            </div>
+          </div>
+          <div class="checklist-action-group">
+            <button class="goldenrod-button checklist-action" id="checklistExport" type="button">Export Job</button>
+            <button class="goldenrod-button checklist-action" id="checklistRun" type="button">Run Job</button>
+          </div>
+        </li>
+
+      </ol>
+    </div>
   </div>
 
   <div id="main-app">
     
     <div id="leftColumn">
       
-      <div class="panel" data-panel-id="import">
-        <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
-        <div class="panel-body">
-        <div class="import-section">
-          <h2 class="checklist-heading">Setup Checklist</h2>
-          <ol class="setup-checklist" id="setupChecklist">
-
-            <li class="checklist-step" data-step="connect" id="checklistStepConnect">
-              <span class="checklist-num">1</span>
-              <div class="checklist-body">
-                <div class="checklist-title">Connect to the machine</div>
-                <div class="checklist-desc">Plug the LumenPnP in over USB, then connect.</div>
-              </div>
-              <button class="goldenrod-button checklist-action" id="checklistConnect" type="button">Connect</button>
-            </li>
-
-            <li class="checklist-step" data-step="import" id="checklistStepImport">
-              <span class="checklist-num">2</span>
-              <div class="checklist-body">
-                <div class="checklist-title">Import a job or gerber files</div>
-                <div class="checklist-desc">Load a saved job, or import gerbers to start a new one.</div>
-                <span id="gerberImportStatus"></span>
-              </div>
-              <div class="checklist-action-group">
-                <input type="file" id="jobFile" accept=".json" style="display: none;" />
-                <input type="file" id="gerberFiles" accept=".zip,.gbr,.ger,.gtp,.gbp,.gts,.gbs,.pho,.art" multiple style="display: none;" />
-                <button class="goldenrod-button" id="importJob" type="button">Import Job</button>
-                <button class="goldenrod-button" id="importGerber" type="button">Import Gerber</button>
-              </div>
-            </li>
-
-            <li class="checklist-step" data-step="roughpos" id="checklistStepRoughPos">
-              <span class="checklist-num">3</span>
-              <div class="checklist-body">
-                <div class="checklist-title">Set the board's rough position</div>
-                <div class="checklist-desc">Jog to each fiducial, then to the board surface, so the machine roughly knows where the board sits.</div>
-              </div>
-              <button class="goldenrod-button checklist-action" id="checklistRoughPos" type="button">Get Rough Position</button>
-            </li>
-
-            <li class="checklist-step" data-step="fidcal" id="checklistStepFidCal">
-              <span class="checklist-num">4</span>
-              <div class="checklist-body">
-                <div class="checklist-title">Calibrate on the fiducials</div>
-                <div class="checklist-desc">Auto-centers the camera on each fiducial to precisely locate the board.</div>
-              </div>
-              <button class="goldenrod-button checklist-action" id="checklistFidCal" type="button">Perform Fid Cal</button>
-            </li>
-
-            <li class="checklist-step" data-step="nozzlecal" id="checklistStepNozzleCal">
-              <span class="checklist-num">5</span>
-              <div class="checklist-body">
-                <div class="checklist-title">Calibrate the nozzle offset</div>
-                <div class="checklist-desc">Optional, but recommended after swapping tips - aligns the dispense tip with the camera's view.</div>
-              </div>
-              <button class="goldenrod-button checklist-action" id="checklistNozzleCal" type="button">Nozzle Offset Cal</button>
-            </li>
-
-            <li class="checklist-step" data-step="settings" id="checklistStepSettings">
-              <span class="checklist-num">6</span>
-              <div class="checklist-body">
-                <div class="checklist-title">Review dispense &amp; extruder settings</div>
-                <div class="checklist-desc">Check dispense degrees, speeds, and Z offsets before running.</div>
-              </div>
-              <button class="goldenrod-button checklist-action" id="checklistGoSettings" type="button">Go to Settings</button>
-            </li>
-
-            <li class="checklist-step" data-step="run" id="checklistStepRun">
-              <span class="checklist-num">7</span>
-              <div class="checklist-body">
-                <div class="checklist-title">Export or run the job</div>
-                <div class="checklist-desc">Save the job for later, or run it now.</div>
-              </div>
-              <div class="checklist-action-group">
-                <button class="goldenrod-button checklist-action" id="checklistExport" type="button">Export Job</button>
-                <button class="goldenrod-button checklist-action" id="checklistRun" type="button">Run Job</button>
-              </div>
-            </li>
-
-          </ol>
-        </div>
-        </div>
-      </div>
-
       <div class="panel" data-panel-id="job-positions">
         <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
         <div class="panel-body">
@@ -147,6 +165,7 @@
           <div class="positions-section">
             <div class="positions-header">
               <h2>Job Positions</h2>
+              <span id="gerberImportStatus"></span>
               <button id="getRoughBoardPosition" class="goldenrod-button">Get Rough Board Position</button>
 
               <button id="performFidCal" class="goldenrod-button">Perform Fid Cal</button>
@@ -181,6 +200,7 @@
               </div>
             </div>
             <div class="board-tabs-container"></div>
+            <div class="paste-volume-summary" id="pasteVolumeSummary"></div>
             <div class="positions-list">
             </div>
           </div>
@@ -205,7 +225,8 @@
               <button id="vizZoomIn" class="goldenrod-button" type="button" title="Zoom in">+</button>
               <button id="vizZoomOut" class="goldenrod-button" type="button" title="Zoom out">−</button>
               <button id="vizZoomReset" class="goldenrod-button" type="button" title="Reset view">⤢</button>
-              <button id="vizTogglePads" class="goldenrod-button" type="button" title="Toggle pad outlines">▦</button>
+              <button id="vizTogglePads" class="goldenrod-button viz-toggle-label" type="button" title="Toggle paste-layer pad outlines - this is what dispense degrees/volume are actually computed from">▦ Paste</button>
+              <button id="vizToggleMaskPads" class="goldenrod-button viz-toggle-label" type="button" title="Toggle solder-mask-layer pad outlines - shown for comparison only, never used for dispense math">▦ Mask</button>
             </div>
             <canvas id="pointViz" width="500" height="500"></canvas>
           </div>
@@ -230,7 +251,34 @@
           <h2>Extruder Settings</h2>
           <div class="settings-row">
             <div class="setting-item">
-              <label for="jobDispenseDeg">Dispense Degrees:</label>
+              <label for="jobStencilThicknessPreset" title="Which solder stencil thickness this board is equivalent to - pick a preset (or choose Custom and type an exact value in the box) to look up/save that thickness's own remembered calibration below.">Solder Stencil Thickness Equivalent:</label>
+              <div class="preset-select-row">
+                <select id="jobStencilThicknessPreset">
+                  <option value="0.1">0.10mm</option>
+                  <option value="0.12">0.12mm</option>
+                  <option value="0.15">0.15mm</option>
+                  <option value="0.2" selected>0.20mm</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <input type="number" id="jobStencilThicknessMm" min="0.01" max="1" step="0.01" value="0.2" title="Stencil thickness (mm) - matches the preset above, or type an exact custom value here" />
+              </div>
+            </div>
+            <div class="setting-item">
+              <label for="jobNozzleGaugePreset" title="Which dispense nozzle is mounted - a narrower (higher gauge number) nozzle needs more auger rotation for the same paste volume, so this scales the calibration below. The ratio box is a directly-tunable multiplier relative to 22GA (1.0); adjust it as you learn each nozzle's real behavior.">Dispense Nozzle:</label>
+              <div class="preset-select-row">
+                <select id="jobNozzleGaugePreset">
+                  <option value="20">20GA</option>
+                  <option value="22" selected>22GA</option>
+                  <option value="23">23GA</option>
+                  <option value="25">25GA</option>
+                </select>
+                <input type="number" id="jobNozzleGaugeRatio" min="0.01" step="0.001" value="1" title="Dispense-degrees multiplier for this nozzle, relative to 22GA (1.0) - tune per nozzle/paste combo, saved automatically" />
+              </div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="setting-item">
+              <label for="jobDispenseDeg" title="Auger rotation (degrees) for a nominal 0402 pad (0.36mm²) at the stencil thickness and nozzle selected above - every other pad size scales its own dispense off this number based on its real pasting-layer pad area. Bump this up/down and re-test to calibrate for a given stencil/paste/tip combo.">0402 Pad Dispense Degrees Calibration:</label>
               <input type="number" id="jobDispenseDeg" min="1" max="300" value="30" />
             </div>
             <div class="setting-item hw-plunger-only">

@@ -6,7 +6,7 @@ import { onOpenCVReady } from './opencv-bridge.js';
 import { VideoManager } from './video.js';
 import { Job } from './job.js';
 import { Lumen } from './lumen.js'
-import { getPasteDispenseSettings, setPasteDispenseSettings, resetPasteDispenseSettings } from './gerberImport.js';
+import { getPasteDispenseSettings, setPasteDispenseSettings, resetPasteDispenseSettings, suggestedDispenseDegrees, DEFAULT_NOZZLE_GAUGE_RATIOS, NOZZLE_RATIO_STORAGE_KEY } from './gerberImport.js';
 
 let modal = new modalManager();
 let toast = new toastManager();
@@ -200,6 +200,139 @@ onOpenCVReady(cv => {
   const jobPostGcode = document.getElementById('jobPostGcode');
   const jobInvertDispense = document.getElementById('jobInvertDispense');
 
+  // Remembers the 0402 dispense-degrees calibration you actually tested/
+  // tuned for each stencil-thickness + nozzle-gauge combo, so switching
+  // between presets (see wiring below) recalls what you last dialed in
+  // instead of losing it. A machine/tip/paste-level calibration, not a
+  // per-job one - lives in localStorage like the hardware version, not the
+  // job file (the job file still separately saves/restores whatever
+  // dispenseDegrees value was active when it was exported).
+  const CALIBRATION_STORAGE_KEY = 'lumenPasteUtility.calibrationByThicknessAndNozzle';
+
+  function loadJsonStore(key) {
+    try {
+      return JSON.parse(localStorage.getItem(key) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  function saveJsonStore(key, store) {
+    localStorage.setItem(key, JSON.stringify(store));
+  }
+
+  function calibrationKey(nozzleGauge, thicknessMm) {
+    return `${nozzleGauge}|${thicknessMm}`;
+  }
+
+  // Looked-up/saved ratio for this nozzle if it's been manually tuned,
+  // otherwise DEFAULT_NOZZLE_GAUGE_RATIOS' starting-point guess (see
+  // gerberImport.js).
+  function getNozzleRatio(nozzleGauge) {
+    const store = loadJsonStore(NOZZLE_RATIO_STORAGE_KEY);
+    const saved = store[nozzleGauge];
+    return saved != null ? saved : (DEFAULT_NOZZLE_GAUGE_RATIOS[nozzleGauge] ?? 1);
+  }
+
+  function saveNozzleRatio(nozzleGauge, ratio) {
+    const store = loadJsonStore(NOZZLE_RATIO_STORAGE_KEY);
+    store[nozzleGauge] = ratio;
+    saveJsonStore(NOZZLE_RATIO_STORAGE_KEY, store);
+  }
+
+  // Looked-up/saved calibration for this thickness+nozzle combo if you've
+  // already tuned one, otherwise a suggested starting point scaled off the
+  // known 30-degrees-at-0.2mm-on-22GA reference (see
+  // suggestedDispenseDegrees()) - just a starting point to manually test
+  // from, per the calibration workflow this whole panel exists for.
+  function getCalibration(thicknessMm, nozzleGauge) {
+    const store = loadJsonStore(CALIBRATION_STORAGE_KEY);
+    const saved = store[calibrationKey(nozzleGauge, thicknessMm)];
+    if (saved != null) return saved;
+    return Math.round(suggestedDispenseDegrees(thicknessMm, getNozzleRatio(nozzleGauge)) * 10) / 10;
+  }
+
+  function saveCalibration(thicknessMm, nozzleGauge, degrees) {
+    const store = loadJsonStore(CALIBRATION_STORAGE_KEY);
+    store[calibrationKey(nozzleGauge, thicknessMm)] = degrees;
+    saveJsonStore(CALIBRATION_STORAGE_KEY, store);
+  }
+
+  const jobStencilThicknessPreset = document.getElementById('jobStencilThicknessPreset');
+  const jobStencilThicknessMm = document.getElementById('jobStencilThicknessMm');
+  const jobNozzleGaugePreset = document.getElementById('jobNozzleGaugePreset');
+  const jobNozzleGaugeRatio = document.getElementById('jobNozzleGaugeRatio');
+
+  // Reflects the actual mm value in the preset dropdown - "Custom" if it
+  // doesn't match one of the fixed options.
+  function syncStencilPresetSelect(thicknessMm) {
+    if (!jobStencilThicknessPreset) return;
+    const hasOption = [...jobStencilThicknessPreset.options].some(o => o.value !== 'custom' && Number(o.value) === thicknessMm);
+    jobStencilThicknessPreset.value = hasOption ? String(thicknessMm) : 'custom';
+  }
+
+  // Pulls the current stencil thickness + nozzle gauge from their fields,
+  // looks up (or suggests) that combo's calibration, and pushes it all into
+  // the job - then re-runs every already-loaded board through it
+  // immediately, same as an Advanced Settings tweak, so you don't have to
+  // re-import a gerber just to test a different thickness/nozzle/calibration
+  // combo.
+  function applyCalibrationInputs() {
+    if (!jobStencilThicknessMm || !jobNozzleGaugePreset) return;
+    const thicknessMm = Number(jobStencilThicknessMm.value);
+    const nozzleGauge = Number(jobNozzleGaugePreset.value);
+    currentJob.stencilThicknessMm = thicknessMm;
+    currentJob.nozzleGauge = nozzleGauge;
+
+    syncStencilPresetSelect(thicknessMm);
+    if (jobNozzleGaugeRatio) jobNozzleGaugeRatio.value = getNozzleRatio(nozzleGauge);
+
+    const degrees = getCalibration(thicknessMm, nozzleGauge);
+    currentJob.dispenseDegrees = degrees;
+    if (jobDispenseDeg) jobDispenseDeg.value = degrees;
+
+    currentJob.recomputeDispensePattern();
+  }
+
+  if (jobStencilThicknessPreset) {
+    jobStencilThicknessPreset.addEventListener('change', (e) => {
+      if (e.target.value === 'custom') return; // leave whatever's typed in the mm box alone
+      if (jobStencilThicknessMm) jobStencilThicknessMm.value = e.target.value;
+      applyCalibrationInputs();
+    });
+  }
+
+  if (jobStencilThicknessMm) {
+    jobStencilThicknessMm.addEventListener('change', (e) => {
+      const thicknessMm = Number(e.target.value);
+      if (!Number.isFinite(thicknessMm) || thicknessMm <= 0) return;
+      applyCalibrationInputs();
+    });
+  }
+
+  if (jobNozzleGaugePreset) {
+    jobNozzleGaugePreset.addEventListener('change', () => {
+      applyCalibrationInputs();
+    });
+  }
+
+  if (jobNozzleGaugeRatio) {
+    jobNozzleGaugeRatio.addEventListener('change', (e) => {
+      const ratio = Number(e.target.value);
+      if (!Number.isFinite(ratio) || ratio <= 0) return;
+      saveNozzleRatio(currentJob.nozzleGauge, ratio);
+
+      // The ratio only feeds the SUGGESTED calibration for a not-yet-tuned
+      // thickness/nozzle combo (see getCalibration()) - if the current combo
+      // already has its own explicit saved calibration, leave it alone
+      // rather than silently overwriting a real tuned value.
+      const store = loadJsonStore(CALIBRATION_STORAGE_KEY);
+      if (store[calibrationKey(currentJob.nozzleGauge, currentJob.stencilThicknessMm)] == null) {
+        applyCalibrationInputs();
+      }
+    });
+  }
+
   if (jobDispenseDeg) {
     jobDispenseDeg.addEventListener('input', (e) => {
       currentJob.dispenseDegrees = Number(e.target.value);
@@ -207,7 +340,25 @@ onOpenCVReady(cv => {
       // value immediately for every point still using the job-wide default.
       currentJob.drawJobToCanvas();
     });
+
+    // On blur/enter (not every keystroke): save this value as the
+    // remembered calibration for whichever stencil thickness + nozzle gauge
+    // is currently selected, and re-run every already-loaded board's pads
+    // through it - same "immediately re-test without re-importing" behavior
+    // the Advanced Settings tab tunables already have.
+    jobDispenseDeg.addEventListener('change', (e) => {
+      const degrees = Number(e.target.value);
+      saveCalibration(currentJob.stencilThicknessMm, currentJob.nozzleGauge, degrees);
+      currentJob.recomputeDispensePattern();
+    });
   }
+
+  // Load whatever calibration was last saved for the default (22GA/0.2mm)
+  // combo, if this browser has one from a previous session - a no-op on the
+  // placements themselves until a gerber's actually imported.
+  if (jobStencilThicknessMm) jobStencilThicknessMm.value = currentJob.stencilThicknessMm;
+  if (jobNozzleGaugePreset) jobNozzleGaugePreset.value = currentJob.nozzleGauge;
+  applyCalibrationInputs();
 
   if (jobRetractionDeg) {
     jobRetractionDeg.addEventListener('change', (e) => {
@@ -695,14 +846,84 @@ if (extrudeBtn) {
   });
 }
 
-// Purge Auger: run the B axis a long way to clear/prime the auger, pump on throughout
+// Purge Auger: run the B axis a long way to clear/prime the auger, pump on
+// throughout. Sent as a sequence of small chunks (not one giant move) so a
+// Stop click actually takes effect within about one chunk's worth of motion
+// instead of only after the whole purge has already run - same
+// check-between-sends pattern Job.run() uses for its own "close to cancel".
+const PURGE_FEEDRATE = 100000; // deg/min, matches the previous fixed purge's feedrate
+// A quarter of the old fixed 200000-degree purge (which took 200000/100000 =
+// 2 minutes at PURGE_FEEDRATE) - 30s/50000deg is just the starting default
+// now, since the toast below lets it be changed per-purge.
+const DEFAULT_PURGE_SECONDS = 30;
+const PURGE_CHUNK_DEGREES = 2000; // ~1.2s per chunk at PURGE_FEEDRATE - the worst-case Stop latency
+
+let purgeStopRequested = false;
+let purgeRunning = false;
+
 const purgeAugerBtn = document.getElementById('purgeAuger');
 if (purgeAugerBtn) {
   purgeAugerBtn.addEventListener('click', () => {
-    // Positive B extrudes on this auger; invert direction if invertDispense is enabled
-    const purgeDistance = currentJob.invertDispense ? -200000 : 200000;
-    serial.send([`M106 P2 S${Math.round(currentJob.vacuumPressure / 100 * 255)}`, `M906 B ${currentJob.motorCurrent}`, "G91", `G0 B${purgeDistance} F100000`, "G90", "M107 P2"]);
+    if (purgeRunning) return; // already showing/running its own toast
+    if (currentJob.isRunning) {
+      alert("Can't purge the auger while a job is running.");
+      return;
+    }
+    showPurgeSetupToast();
   });
+}
+
+function showPurgeSetupToast() {
+  toast.toastContent.innerHTML = `
+    Purge Auger - runs the auger for the duration below, pump on throughout.<br>
+    <label>Duration (seconds): <input type="number" id="purgeDurationInput" min="1" max="600" step="1" value="${DEFAULT_PURGE_SECONDS}"></label>
+    <button id="purgeStartBtn" class="goldenrod-button" type="button">Start</button>
+  `;
+  toast.toastObject.style.display = "flex";
+
+  document.getElementById('purgeStartBtn').addEventListener('click', () => {
+    const input = document.getElementById('purgeDurationInput');
+    const seconds = Math.max(1, Number(input.value) || DEFAULT_PURGE_SECONDS);
+    runPurge(seconds);
+  });
+}
+
+async function runPurge(seconds) {
+  purgeRunning = true;
+  purgeStopRequested = false;
+  purgeAugerBtn.disabled = true;
+
+  const totalDegrees = seconds * (PURGE_FEEDRATE / 60);
+  // Positive B extrudes on this auger; invert direction if invertDispense is enabled
+  const direction = currentJob.invertDispense ? -1 : 1;
+
+  toast.toastContent.innerHTML = `
+    Purging auger (${seconds}s)... <span id="purgeProgress">0%</span><br>
+    <button id="purgeStopBtn" class="goldenrod-button" type="button">Stop</button>
+  `;
+  toast.toastObject.style.display = "flex";
+  document.getElementById('purgeStopBtn').addEventListener('click', () => {
+    purgeStopRequested = true;
+  });
+
+  await serial.send([`M106 P2 S${Math.round(currentJob.vacuumPressure / 100 * 255)}`, `M906 B ${currentJob.motorCurrent}`, "G91"]);
+
+  let sentDegrees = 0;
+  while (sentDegrees < totalDegrees && !purgeStopRequested) {
+    const chunk = Math.min(PURGE_CHUNK_DEGREES, totalDegrees - sentDegrees);
+    const sendOk = await serial.send([`G0 B${direction * chunk} F${PURGE_FEEDRATE}`]);
+    if (!sendOk) break;
+
+    sentDegrees += chunk;
+    const progressEl = document.getElementById('purgeProgress');
+    if (progressEl) progressEl.textContent = `${Math.round(sentDegrees / totalDegrees * 100)}%`;
+  }
+
+  await serial.send(["G90", "M107 P2"]);
+
+  toast.hide();
+  purgeAugerBtn.disabled = false;
+  purgeRunning = false;
 }
 
 // Offset tuning: nudge the dispense position by 0.1mm and jog the physical tip to match.
@@ -879,6 +1100,87 @@ function setupSetupChecklist(){
   const checklist = document.getElementById('setupChecklist');
   if (!checklist) return;
 
+  // Floating popup open/closed state (see .floating-popup in style.css) -
+  // remembered across reloads like the rest of this page's layout, but
+  // defaults to open since this is the primary onboarding flow for anyone
+  // who hasn't seen it yet.
+  const POPUP_STORAGE_KEY = 'lumenPasteUtility.setupChecklistOpen';
+  const popup = document.getElementById('setupChecklistPopup');
+  const toggleButton = document.getElementById('setupChecklistToggle');
+  const closeButton = document.getElementById('setupChecklistClose');
+
+  const setPopupOpen = (open) => {
+    if (popup) popup.classList.toggle('visible', open);
+    localStorage.setItem(POPUP_STORAGE_KEY, open ? '1' : '0');
+  };
+
+  const savedOpen = localStorage.getItem(POPUP_STORAGE_KEY);
+  setPopupOpen(savedOpen === null ? true : savedOpen === '1');
+
+  if (toggleButton) toggleButton.addEventListener('click', () => {
+    setPopupOpen(!popup?.classList.contains('visible'));
+  });
+  if (closeButton) closeButton.addEventListener('click', () => setPopupOpen(false));
+
+  // Dragging by the header - lets the popup be moved out of the way of the
+  // machine controls/camera feed it floats over, since it has no dimming
+  // overlay and is meant to stay open while those stay usable. Position
+  // (top-left, in px) persists across reloads the same way panel layout
+  // does; switches the popup from its default CSS `top/right` anchor to an
+  // explicit `left/top` the first time it's dragged or restored.
+  const POS_STORAGE_KEY = 'lumenPasteUtility.setupChecklistPos';
+  const header = popup?.querySelector('.floating-popup-header');
+
+  const applyPosition = (left, top) => {
+    if (!popup) return;
+    const maxLeft = Math.max(0, window.innerWidth - popup.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - popup.offsetHeight);
+    const clampedLeft = Math.min(Math.max(left, 0), maxLeft);
+    const clampedTop = Math.min(Math.max(top, 0), maxTop);
+    popup.style.left = `${clampedLeft}px`;
+    popup.style.top = `${clampedTop}px`;
+    popup.style.right = 'auto';
+    return { left: clampedLeft, top: clampedTop };
+  };
+
+  try {
+    const savedPos = JSON.parse(localStorage.getItem(POS_STORAGE_KEY) || 'null');
+    if (savedPos && typeof savedPos.left === 'number' && typeof savedPos.top === 'number') {
+      applyPosition(savedPos.left, savedPos.top);
+    }
+  } catch (error) {
+    console.warn('Could not restore Setup Checklist position:', error);
+  }
+
+  if (header) {
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    header.addEventListener('pointerdown', (event) => {
+      if (event.target.closest('.btn-close')) return;
+      const rect = popup.getBoundingClientRect();
+      dragOffsetX = event.clientX - rect.left;
+      dragOffsetY = event.clientY - rect.top;
+      header.setPointerCapture(event.pointerId);
+      document.body.classList.add('dragging-popup');
+    });
+
+    header.addEventListener('pointermove', (event) => {
+      if (!header.hasPointerCapture(event.pointerId)) return;
+      applyPosition(event.clientX - dragOffsetX, event.clientY - dragOffsetY);
+    });
+
+    const endDrag = (event) => {
+      if (!header.hasPointerCapture(event.pointerId)) return;
+      header.releasePointerCapture(event.pointerId);
+      document.body.classList.remove('dragging-popup');
+      const rect = popup.getBoundingClientRect();
+      localStorage.setItem(POS_STORAGE_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
+    };
+    header.addEventListener('pointerup', endDrag);
+    header.addEventListener('pointercancel', endDrag);
+  }
+
   const forward = (fromId, toId) => {
     const from = document.getElementById(fromId);
     const to = document.getElementById(toId);
@@ -886,6 +1188,8 @@ function setupSetupChecklist(){
   };
 
   forward('checklistConnect', 'connect');
+  forward('checklistImportJob', 'importJob');
+  forward('checklistImportGerber', 'importGerber');
   forward('checklistRoughPos', 'getRoughBoardPosition');
   forward('checklistFidCal', 'performFidCal');
   forward('checklistNozzleCal', 'nozzleOffsetCal');
@@ -1066,16 +1370,6 @@ function setupPanels(){
   }
 }
 
-// The import panel's saved height (see setupPanels() above) predates the
-// Setup Checklist - it used to hold just a couple of buttons, so anyone
-// with an old saved height would load the new, much taller checklist
-// clipped down into that old short box. Drop that one stale height once so
-// the panel falls back to its natural content height instead; guarded so
-// this never stomps on a height the user resizes it to afterward.
-if (!localStorage.getItem('lumenPasteUtility.panel.import.heightMigratedForChecklist')) {
-  localStorage.removeItem('lumenPasteUtility.panel.import.height');
-  localStorage.setItem('lumenPasteUtility.panel.import.heightMigratedForChecklist', '1');
-}
 
 setupPanels();
 

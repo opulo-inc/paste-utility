@@ -14,6 +14,117 @@ export const NOMINAL_0402_DISPENSE_DEGREES = 30
 export const MIN_DISPENSE_DEGREES = 3
 export const MAX_DISPENSE_DEGREES = 300
 
+// Solder stencil thickness the 30-degree-for-a-0402-pad calibration above is
+// itself referenced to. Also the initial/fallback value for
+// Job.stencilThicknessMm (job.js), which only affects the estimated
+// paste-volume figures (see padPasteVolumeMm3()), not dispense degrees - the
+// degrees calibration is whatever's actually been tested/typed into the
+// Basic tab, per thickness+nozzle combo (see calibrationStore in main.js).
+export const DEFAULT_STENCIL_THICKNESS_MM = 0.2
+
+// Preset "equivalent thickness" dropdown options on the Basic settings tab.
+// Just the common off-the-shelf stencil steps - picking one is a shortcut to
+// fill in Stencil Thickness (mm) and look up/save that thickness's own
+// calibration, not a constraint on what value the field can hold.
+export const STENCIL_THICKNESS_PRESETS_MM = [0.10, 0.12, 0.15, 0.20]
+
+// Nozzle tip the 30-degree-for-a-0402-pad-at-0.2mm baseline above was itself
+// calibrated on - so its ratio (see DEFAULT_NOZZLE_GAUGE_RATIOS) is exactly
+// 1, no change.
+export const DEFAULT_NOZZLE_GAUGE = 22
+
+// Preset nozzle-gauge dropdown options on the Basic settings tab. Smaller
+// number = wider bore.
+export const NOZZLE_GAUGE_PRESETS = [20, 22, 23, 25]
+
+// localStorage key for user-tuned nozzle-gauge ratio overrides (see
+// DEFAULT_NOZZLE_GAUGE_RATIOS below) - shared between main.js (which reads
+// and writes it as the ratio field is tuned) and job.js (which only reads it,
+// to redisplay the right ratio for a job file's saved nozzleGauge on import).
+// Machine/tip-level, like the hardware version - not part of the job file.
+export const NOZZLE_RATIO_STORAGE_KEY = 'lumenPasteUtility.nozzleGaugeRatios'
+
+// Starting-point ratio (relative to 22GA's 1.0) for each preset nozzle,
+// before any manual tuning - purely a UI/calibration-lookup default (see
+// calibrationStore/nozzleRatioStore in main.js), never read by the pad-area
+// dispense math itself (planPadDispense/totalDispenseDegreesForPad below),
+// which only ever uses whatever final number ends up in the 0402 Pad
+// Dispense Degrees Calibration field. A narrower (higher gauge number)
+// nozzle needs more auger rotation to push the same paste volume through
+// than a wider one does, so ratio climbs with gauge number: 20GA (wider)
+// drops the 0402/0.2mm/22GA baseline to 20 degrees, 25GA (narrowest) raises
+// it to 40 - both directly specified, not derived. 23GA has no direct
+// measurement yet, so it's linearly interpolated across the 22->25 gap.
+// Each entry is meant to be manually tuned (and, per-nozzle, eventually
+// hardcoded/removed from the UI once dialed in) from real dispense results,
+// same as every other constant in this section.
+export const DEFAULT_NOZZLE_GAUGE_RATIOS = (() => {
+    const gauge22Degrees = NOMINAL_0402_DISPENSE_DEGREES
+    const gauge25Degrees = 40
+    const gauge20Degrees = 20
+    const gauge23Degrees = gauge22Degrees + (gauge25Degrees - gauge22Degrees) * ((23 - 22) / (25 - 22))
+    return {
+        20: gauge20Degrees / gauge22Degrees,
+        22: 1,
+        23: gauge23Degrees / gauge22Degrees,
+        25: gauge25Degrees / gauge22Degrees,
+    }
+})()
+
+// Known (real, tested) 22GA dispense-degrees-per-thickness anchor points, in
+// increasing thickness order - every other stencil-thickness preset's
+// suggested default is linearly interpolated between the two nearest of
+// these (see piecewiseLinear() below), rather than assumed to scale purely
+// linearly off the single 0.2mm reference. Real dispense behavior isn't
+// linear in practice - 0.1mm's tested value (27.5deg) is nowhere near half of
+// 0.2mm's (30deg), likely because a chunk of the rotation is priming/
+// overcoming backlash rather than pure metered volume - which is exactly why
+// this is a manual calibration workflow, filled in with real anchor points
+// as they're tested, rather than a pure formula.
+export const STENCIL_THICKNESS_DEGREES_22GA = [
+    {thicknessMm: 0.10, degrees: 27.5},
+    {thicknessMm: DEFAULT_STENCIL_THICKNESS_MM, degrees: NOMINAL_0402_DISPENSE_DEGREES},
+]
+
+// Piecewise-linear interpolation across a sorted set of {x, y} anchor points
+// (field names given via xKey/yKey) - extrapolates past either end using
+// that end's own segment slope, rather than clamping, so a thickness outside
+// the tested range still gets a reasonable (if less certain) suggestion
+// instead of just the nearest anchor's value.
+function piecewiseLinear(anchors, xKey, yKey, x) {
+    const pts = [...anchors].sort((a, b) => a[xKey] - b[xKey])
+    if (pts.length === 1) return pts[0][yKey]
+
+    let i = pts.findIndex(p => p[xKey] >= x)
+    if (i === -1) i = pts.length - 1
+    if (i === 0) i = 1
+    const a = pts[i - 1], b = pts[i]
+    const t = (x - a[xKey]) / (b[xKey] - a[xKey])
+    return a[yKey] + t * (b[yKey] - a[yKey])
+}
+
+// Starting-point suggestion for a stencil-thickness/nozzle-gauge combo that
+// hasn't been calibrated yet: interpolates the 22GA reference degrees for
+// this thickness from STENCIL_THICKNESS_DEGREES_22GA's real anchor points,
+// then nozzleRatio scales that again for how much more/less rotation the
+// selected nozzle needs for the same volume. This is only ever a suggested
+// starting value for the field, meant to be manually tuned and saved from
+// there - real dispense behavior won't match it exactly.
+export function suggestedDispenseDegrees(stencilThicknessMm, nozzleRatio) {
+    return piecewiseLinear(STENCIL_THICKNESS_DEGREES_22GA, 'thicknessMm', 'degrees', stencilThicknessMm) * nozzleRatio
+}
+
+// Simple geometric print-volume estimate for one pad: pad area (from the
+// paste/pasting gerber layer, already computed by the aperture-shape parsing
+// below) times how thick the stencil deposits paste. Deliberately not
+// aperture-ratio-corrected (real stencil release efficiency is under 100% and
+// depends on aperture width:thickness) - this is the same "flat" volume a
+// stencil's own area x thickness spec sheet would quote, good enough for
+// ballpark per-pad/per-board paste usage, not a print-quality prediction.
+export function padPasteVolumeMm3(padAreaMm2, stencilThicknessMm) {
+    return padAreaMm2 * stencilThicknessMm
+}
+
 // Real-world radius a dispensed dot's drawn indicator represents, scaled by
 // dispense degrees (see placementDotRadiusMm). Lives here rather than in
 // job.js (which also uses it, for the on-canvas dot) so planPadDispense's own
@@ -327,12 +438,87 @@ function rotatedRectBounds(cx, cy, w, h, rotationDeg) {
     return {minX, minY, maxX, maxY}
 }
 
+// Normalizes an angle (radians) into (-PI, PI].
+function normalizeAngle(rad) {
+    let a = rad % (2 * Math.PI)
+    if (a <= -Math.PI) a += 2 * Math.PI
+    if (a > Math.PI) a -= 2 * Math.PI
+    return a
+}
+
+// Detects the standard KiCad "roundrect" pad macro: a rectangular core (drawn
+// via an outline/polygon primitive - code 4 - that macroShapeBounds below
+// doesn't model) with its 4 corners rounded off by same-radius circles
+// (code 1) connected by same-width capsule strips (code 20). When a macro
+// matches this shape, returns the pad's TRUE local width/height and its
+// rotation angle relative to the gerber's world axes - unlike
+// macroShapeBounds's plain axis-aligned bounding box, this stays correct (and
+// critically, IDENTICAL for the same physical pad regardless of which way the
+// component is rotated) at any rotation, not just multiples of 90 degrees.
+// A pad's axis-aligned bounding box only equals its true silhouette when it
+// happens to be axis-aligned - at 45 degrees a rectangle's bounding box can
+// be nearly 60% bigger in area than the rectangle itself, which was silently
+// inflating pad.area (and so dispense volume/degrees) for any diagonally
+// placed component, and made the pad-outline overlay draw an oversized
+// axis-aligned box instead of the pad's real rotated outline.
+// Returns null if the macro isn't built from exactly 4 equal-radius circles
+// forming a rectangle, so the caller can fall back to macroShapeBounds.
+function roundedRectGeometry(macroChildren, variableValues) {
+    const circles = []
+    for (const prim of macroChildren) {
+        if (prim.type !== 'macroPrimitive' || prim.code !== '1') continue
+        const [, diameter, cx = 0, cy = 0] = prim.parameters.map(v => evalMacroValue(v, variableValues))
+        circles.push({cx, cy, r: diameter / 2})
+    }
+    if (circles.length !== 4) return null
+
+    const r = circles[0].r
+    if (!(r > 0) || !circles.every(c => Math.abs(c.r - r) < 1e-6)) return null
+
+    // Order the 4 corner centers around their centroid so adjacent entries in
+    // the sorted list are actually adjacent rectangle corners, regardless of
+    // the order the macro's own primitives happened to list them in.
+    const cx0 = circles.reduce((s, c) => s + c.cx, 0) / 4
+    const cy0 = circles.reduce((s, c) => s + c.cy, 0) / 4
+    const ordered = [...circles].sort((a, b) =>
+        Math.atan2(a.cy - cy0, a.cx - cx0) - Math.atan2(b.cy - cy0, b.cx - cx0))
+
+    const edge = (a, b) => ({
+        len: Math.hypot(b.cx - a.cx, b.cy - a.cy),
+        angle: Math.atan2(b.cy - a.cy, b.cx - a.cx),
+    })
+    const e0 = edge(ordered[0], ordered[1])
+    const e1 = edge(ordered[1], ordered[2])
+    const e2 = edge(ordered[2], ordered[3])
+    const e3 = edge(ordered[3], ordered[0])
+
+    // A real rectangle: opposite sides the same length, adjacent sides
+    // perpendicular. Tolerant, not exact - the source values are themselves
+    // rounded decimal literals in the gerber file.
+    if (Math.abs(e0.len - e2.len) > 0.01 || Math.abs(e1.len - e3.len) > 0.01) return null
+    if (Math.abs(Math.abs(normalizeAngle(e1.angle - e0.angle)) - Math.PI / 2) > 0.05) return null
+
+    // e0's own direction is the pad's local "width" axis rotation; e0/e1's
+    // lengths are that width/height with the corner radius added back on
+    // both sides (the circle-center-to-circle-center span excludes it).
+    return {
+        xSize: e0.len + 2 * r,
+        ySize: e1.len + 2 * r,
+        rotationDeg: e0.angle * 180 / Math.PI,
+        cornerRadius: r,
+    }
+}
+
 // Computes the overall (axis-aligned) bounding box of a macro aperture by
 // unioning the bounds of its primitives - circles, center-line rects, and
 // vector lines, which covers the vast majority of real pad macros (e.g.
 // Altium's rounded-rectangle pads). Outline/polygon/moire/thermal primitives
 // aren't modeled; if the macro is built entirely from those, this returns
 // null and the caller falls back to a nominal dot rather than guessing wrong.
+// Only reached for a macro shape roundedRectGeometry() above didn't
+// recognize - it's rotation-blind (returns a world-axis-aligned box even for
+// a rotated pad), which is fine for the axis-aligned macros it's actually
+// still used for, but would silently inflate area for a rotated one.
 function macroShapeBounds(macroChildren, variableValues) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
     let found = false
@@ -371,22 +557,30 @@ function macroShapeBounds(macroChildren, variableValues) {
 }
 
 // Turns a tool (aperture) definition into pad geometry in mm, including an
-// approximate area used for dispense-volume scaling.
+// approximate area used for dispense-volume scaling. Every pad carries a
+// rotationDeg (0 unless roundedRectGeometry() below found a real one) -
+// xSize/ySize are always the pad's TRUE, rotation-invariant local
+// width/height (i.e. what they'd measure if the pad were rotated back to 0
+// degrees), never a rotated axis-aligned bounding box, so classification
+// (elongated/grid/tight-pitch) and area/volume come out identical for the
+// same physical pad no matter which way the component sits. Consumers that
+// place things in world space (planPadDispense's dot offsets, the pad-outline
+// overlay) are responsible for rotating by rotationDeg themselves.
 function padFromTool(x, y, tool, macros) {
     if (!tool) {
         // A flash before any tool was selected means a malformed file - fall
         // back to a nominal small pad rather than losing the point.
-        return {x, y, shape: 'unknown', xSize: 0.3, ySize: 0.3, diameter: 0.3, area: NOMINAL_0402_PAD_AREA_MM2}
+        return {x, y, shape: 'unknown', xSize: 0.3, ySize: 0.3, diameter: 0.3, rotationDeg: 0, area: NOMINAL_0402_PAD_AREA_MM2}
     }
 
     if (tool.type === 'circle') {
         const d = tool.diameter
-        return {x, y, shape: 'circle', xSize: d, ySize: d, diameter: d, area: Math.PI * (d / 2) ** 2}
+        return {x, y, shape: 'circle', xSize: d, ySize: d, diameter: d, rotationDeg: 0, area: Math.PI * (d / 2) ** 2}
     }
 
     if (tool.type === 'rectangle') {
         const {xSize, ySize} = tool
-        return {x, y, shape: 'rectangle', xSize, ySize, diameter: null, area: xSize * ySize}
+        return {x, y, shape: 'rectangle', xSize, ySize, diameter: null, rotationDeg: 0, area: xSize * ySize}
     }
 
     if (tool.type === 'obround') {
@@ -394,27 +588,40 @@ function padFromTool(x, y, tool, macros) {
         const r = Math.min(xSize, ySize) / 2
         // Stadium shape: rectangle area minus the square the rounded ends replace, plus the circle they form.
         const area = xSize * ySize - (2 * r) ** 2 + Math.PI * r ** 2
-        return {x, y, shape: 'obround', xSize, ySize, diameter: null, area}
+        return {x, y, shape: 'obround', xSize, ySize, diameter: null, rotationDeg: 0, area}
     }
 
     if (tool.type === 'polygon') {
         const d = tool.diameter
-        return {x, y, shape: 'polygon', xSize: d, ySize: d, diameter: d, area: Math.PI * (d / 2) ** 2}
+        return {x, y, shape: 'polygon', xSize: d, ySize: d, diameter: d, rotationDeg: 0, area: Math.PI * (d / 2) ** 2}
     }
 
     if (tool.type === 'macroShape') {
         const macroChildren = macros?.get(tool.name)
+
+        const rect = macroChildren ? roundedRectGeometry(macroChildren, tool.variableValues || []) : null
+        if (rect) {
+            const {xSize, ySize, rotationDeg, cornerRadius: r} = rect
+            // Rounded-rect area: the xSize x ySize box minus its 4 sharp
+            // corners (4r^2) plus the 4 rounded quarter-circles back (pi
+            // r^2) - same subtract-then-add-back as the 'obround' case
+            // above, just for a corner radius that isn't necessarily half
+            // the short side.
+            const area = xSize * ySize - (4 - Math.PI) * r ** 2
+            return {x, y, shape: 'rectangle', xSize, ySize, rotationDeg, diameter: null, area}
+        }
+
         const bounds = macroChildren ? macroShapeBounds(macroChildren, tool.variableValues || []) : null
         if (bounds && bounds.xSize > 0 && bounds.ySize > 0) {
             const {xSize, ySize} = bounds
-            return {x, y, shape: 'rectangle', xSize, ySize, diameter: null, area: xSize * ySize}
+            return {x, y, shape: 'rectangle', xSize, ySize, diameter: null, rotationDeg: 0, area: xSize * ySize}
         }
     }
 
     // Anything else we don't model (or a macro shape we couldn't resolve): we
     // don't know its true silhouette, so treat it as a nominal dot rather than
     // guessing wrong.
-    return {x, y, shape: 'unknown', xSize: 0.3, ySize: 0.3, diameter: 0.3, area: NOMINAL_0402_PAD_AREA_MM2}
+    return {x, y, shape: 'unknown', xSize: 0.3, ySize: 0.3, diameter: 0.3, rotationDeg: 0, area: NOMINAL_0402_PAD_AREA_MM2}
 }
 
 // Extracts the component refdes a %TO.C,<refdes>*% (or its X1-comment
@@ -1001,6 +1208,35 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0, overr
             ...p,
             dx: p.dx + (alongX ? offset : 0),
             dy: p.dy + (alongX ? 0 : offset)
+        }))
+    }
+
+    // Each dot's fair share of the pad's own real (gerber-measured) area, NOT
+    // scaled by any of the dispense-degrees calibration/multipliers above -
+    // splitting the pad's true area evenly across its own dots means
+    // summing padAreaMm2 back up across a pad's dots (or a component's, or a
+    // whole board's) reconstructs that pad/component/board's real total area
+    // with no double-counting, however many dots the pattern split it into.
+    // Consumed by job.js (stashed onto each Point) purely for the paste
+    // Volume estimate - see padPasteVolumeMm3().
+    const padAreaShareMm2 = pad.area / points.length
+    points = points.map(p => ({ ...p, padAreaMm2: padAreaShareMm2 }))
+
+    // Every dx/dy above was computed in the pad's own LOCAL frame (long axis
+    // along local X per padLongAxisIsX, as if the pad sat unrotated) - for a
+    // pad rotated in the gerber (pad.rotationDeg, see roundedRectGeometry()
+    // in padFromTool()), that local frame doesn't line up with world X/Y, so
+    // rotate the offsets into world space here before the caller adds them
+    // straight onto the pad's world-space x/y. A no-op for the vast majority
+    // of pads (rotationDeg 0), which is also why every other line above stays
+    // free to reason in the simpler local frame.
+    if (pad.rotationDeg) {
+        const rad = pad.rotationDeg * Math.PI / 180
+        const cos = Math.cos(rad), sin = Math.sin(rad)
+        points = points.map(p => ({
+            ...p,
+            dx: p.dx * cos - p.dy * sin,
+            dy: p.dx * sin + p.dy * cos,
         }))
     }
 
