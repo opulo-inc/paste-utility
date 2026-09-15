@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@tracespace/parser": "^5.0.0-alpha.0",
+    "fflate": "^0.8.3",
     "puppeteer": "^24.12.1",
     "transformation-matrix": "^3.0.0"
   }

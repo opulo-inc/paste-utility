@@ -46,9 +46,15 @@ export class toastManager {
 
         this.toastObject.style.display = "flex";
 
+        // Clear any leftover answer from a previous, already-finished toast
+        // interaction - otherwise waitForUserSelection() below sees it as
+        // already answered and resolves (hiding this brand new toast) almost
+        // immediately, before the caller ever gets a real answer.
+        this.receivedInput = undefined;
+
         let response = this.waitForUserSelection();
 
         return response;
-        
+
     }
 }

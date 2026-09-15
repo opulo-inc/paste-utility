@@ -16,6 +16,20 @@ export class serialManager {
 
         this.okRespTimeout = false;
         this.timeoutID = undefined;
+        this.okWaitResolve = null;
+
+        // True for the whole duration of a send() call (every command in its
+        // array, not just one write) - lets callers that poll the board on a
+        // timer (e.g. the live machine-position readout in main.js) skip a
+        // tick rather than racing send()'s writer lock/ok-response state,
+        // which isn't reentrant.
+        this.sending = false;
+
+        // Single source of truth for the ring light's on/off state - every
+        // place that can change it (the toggle button, the forced-on at
+        // connect time below) goes through setRingLights() so the UI can't
+        // drift from what was actually sent to the board.
+        this.ringLightsOn = false;
 
         this.bootCommands = [
             "G90",
@@ -35,6 +49,13 @@ export class serialManager {
     }
 
 
+    // Caps how many lines the on-screen console keeps. Without this, a long
+    // run (hundreds of points x ~18 gcode lines x send+receive) appends
+    // thousands of unremoved <p> nodes, and the scrollTop/scrollHeight
+    // reflow below gets more expensive as that list grows - the job visibly
+    // slows down over its own run. Trimming keeps each append O(1) instead.
+    static MAX_CONSOLE_LINES = 500;
+
     async appendToConsole(message, direction){
         let newConsoleEntry = document.createElement('p')
         let timestamp = new Date().toISOString();
@@ -46,10 +67,14 @@ export class serialManager {
         else{
         dir = "[RECE]"
         }
-        
+
         newConsoleEntry.innerHTML = dir + " - " + timestamp + " - " + message + '\n';
         this.consoleDiv.appendChild(newConsoleEntry)
-        
+
+        while (this.consoleDiv.childNodes.length > serialManager.MAX_CONSOLE_LINES) {
+            this.consoleDiv.removeChild(this.consoleDiv.firstChild);
+        }
+
         this.consoleDiv.scrollTop = this.consoleDiv.scrollHeight;
     }
 
@@ -82,7 +107,7 @@ export class serialManager {
         }
 
         const usbVendorId = 0x0483;
-        this.port = await navigator.serial.requestPort({ filters: [{ usbVendorId }] })    
+        this.port = await navigator.serial.requestPort({ filters: [{ usbVendorId }] })
         console.log("Port Selected.")
 
         await this.port.open({
@@ -97,6 +122,18 @@ export class serialManager {
         console.log("Port Opened.")
         // const { clearToSend, dataCarrierDetect, dataSetReady, ringIndicator} = await this.port.getSignals()
         // console.log({ clearToSend, dataCarrierDetect, dataSetReady, ringIndicator})
+
+        // Clear out state left over from a previous connection so stale buffered
+        // bytes/timers/promises don't bleed into this one, and re-arm shouldListen -
+        // disconnect() sets it false and nothing else was resetting it, so listen()'s
+        // read loop used to exit immediately on every reconnect.
+        this.clearBuffer();
+        this.clearInspectBuffer();
+        clearTimeout(this.timeoutID);
+        this.okRespTimeout = false;
+        this.okWaitResolve = null;
+        this.shouldListen = true;
+
         this.listen()
 
 
@@ -104,12 +141,56 @@ export class serialManager {
         document.querySelector("#connect").style.color = 'white';
         document.querySelector("#connect").innerHTML = 'Connected'; 
 
-        //send boot commands
-        this.send(this.bootCommands)
+        // send boot commands, then the ring light on - awaited and
+        // sequential, not fired concurrently: send() holds the port's
+        // writer lock for its whole duration, so a second send() started
+        // before the first finishes throws trying to get its own writer
+        // lock on an already-locked stream.
+        await this.send(this.bootCommands)
 
-        this.send(["M150 P255 R255 U255 B255"]);
+        // Board always boots with the ring light on - go through
+        // setRingLights() so this.ringLightsOn is confirmed true before
+        // connect() returns, and whatever's driving the toggle button can
+        // read the real state instead of assuming it's still off.
+        await this.setRingLights(true);
 
         return true
+    }
+
+    // Sends the ring light command and only updates the tracked state once
+    // the board actually acknowledges it - see the isConnected()/send()
+    // comment below for why updating local/UI state before that is wrong.
+    async setRingLights(on) {
+        const ok = await this.send([on ? "M150 P255 R255 U255 B255" : "M150 P0"]);
+        if (ok) this.ringLightsOn = on;
+        return ok;
+    }
+
+    async disconnect() {
+        this.shouldListen = false;
+
+        // Unblock any send() currently awaiting an "ok" instead of making it
+        // sit out the full 5s timeout when we already know nothing is coming.
+        clearTimeout(this.timeoutID);
+        this.okRespTimeout = true;
+        this.resolveOkWait();
+
+        if (this.reader) {
+            try { await this.reader.cancel(); } catch (e) { /* already closed */ }
+            this.reader = undefined;
+        }
+
+        if (this.port) {
+            try { await this.port.close(); } catch (e) { /* already closed */ }
+            this.port = undefined;
+        }
+
+        const connectButton = document.querySelector("#connect");
+        connectButton.classList.remove('connected');
+        connectButton.style.background = '';
+        connectButton.style.color = '';
+        connectButton.innerHTML = 'Connect';
+        connectButton.disabled = false;
     }
 
     // this needs to listen to marlin constantly
@@ -121,6 +202,7 @@ export class serialManager {
             let metabuffer = ""
             let consoleDiv = document.getElementById("console");
             const reader = this.port.readable.getReader()
+            this.reader = reader;
             try {
                 while (this.shouldListen) {
                     const { value, done } = await reader.read()
@@ -140,9 +222,22 @@ export class serialManager {
 
                         this.inspectBuffer.push(splitted[0]);
 
+                        // Wake up any pending send() immediately instead of making it poll,
+                        // so command flow doesn't stall when the tab is backgrounded and
+                        // setTimeout-based polling gets throttled by the browser.
+                        if (splitted[0] === 'ok') {
+                            clearTimeout(this.timeoutID);
+                            this.okRespTimeout = false;
+                            this.resolveOkWait();
+                        } else if (splitted[0].includes('echo:busy: processing')) {
+                            // machine is still working on the last command; push the timeout back
+                            clearTimeout(this.timeoutID);
+                            this.setOkRespTimeout();
+                        }
+
                         metabuffer = metabuffer.split('\n').slice(1).join('\n');
 
-                        
+
                     }
                 }
             } catch (error) {
@@ -162,82 +257,86 @@ export class serialManager {
         }
     }
 
-    async setOkRespTimeout(){
-        new Promise(resolve => {
-            this.timeoutID = setTimeout(() => {
-                console.log("timeout triggered");
-                this.okRespTimeout = true;
-                resolve();
-            }, 5000);
+    setOkRespTimeout(){
+        this.timeoutID = setTimeout(() => {
+            console.log("timeout triggered");
+            this.okRespTimeout = true;
+            this.resolveOkWait();
+        }, 5000);
+    }
+
+    // resolves whichever send() call is currently waiting on an "ok", if any
+    resolveOkWait(){
+        if (this.okWaitResolve) {
+            const resolve = this.okWaitResolve;
+            this.okWaitResolve = null;
+            resolve();
+        }
+    }
+
+    // waits for listen() to see an "ok" (or the timeout to fire) without polling,
+    // so this isn't at the mercy of the browser throttling setTimeout in a background tab
+    waitForOk(){
+        return new Promise(resolve => {
+            this.okWaitResolve = resolve;
         });
     }
 
+    // Whether there's an actually-writable port right now. Callers that mirror
+    // machine state into local variables/UI (offset nudges, LED/air toggles)
+    // should check this BEFORE updating that local state - otherwise the UI
+    // shows a value the machine never received, and it looks "saved" even
+    // though nothing happened.
+    isConnected() {
+        return !!this.port?.writable;
+    }
+
+    // Returns true if every command was written and acknowledged, false otherwise.
+    // Callers that loop over many commands (e.g. Job.run()) should check this and
+    // stop rather than continuing to call send() once the port is gone - otherwise
+    // every remaining command re-triggers the "Cannot Write" prompt in a tight loop.
     async send(commandArray) {
         console.log("sending: ", commandArray);
 
-        if (this.port?.writable) {
+        if (!this.port?.writable) {
+            this.modal.show("Cannot Write", "Cannot write to port. Have you connected?");
+            return false;
+        }
+
+        this.sending = true;
         const writer = await this.port.writable.getWriter()
         try {
             for (const element of commandArray) {
                 await writer.write(this.encoder.encode(element + "\n"))
 
-                this.setOkRespTimeout();
-
                 this.appendToConsole(element, true);
 
                 // check that we got an ok back
                 this.clearBuffer()
-
-                while(true){
-                    if(this.okRespTimeout) break;
-
-                    let firstElement = this.receiveBuffer.shift();
-
-                    if(firstElement == 'ok'){
-                        clearTimeout(this.timeoutID);
-                        break;
-                    }
-
-                    if(firstElement = "echo:busy: processing"){
-                        //do something to extend timeout
-                        clearTimeout(this.timeoutID)
-                        this.setOkRespTimeout();
-                    }
-
-                    await new Promise(resolve => setTimeout(resolve, 50)); // Small delay to avoid busy-waiting
-
-                }
-
                 this.okRespTimeout = false;
+                this.setOkRespTimeout();
 
+                await this.waitForOk();
 
-                // while(true){
-                //     console.log(this.okRespTimeout);
-                //     let resp = this.receiveBuffer;
-                //     for(const element of resp){
-                //         console.log(element)
-                //     }
-                //     console.log("printing response:");
-                //     console.log(resp);
-                //     console.log(resp[0])
+                clearTimeout(this.timeoutID);
 
-                //     if(this.okRespTimeout == true){
-                //         console.log("we're breaking because of timeout");
-                //         break;
-                //     }
-
-                // }
-
-                
-
+                if (this.okRespTimeout) {
+                    // timed out waiting for "ok" - board likely dropped mid-command
+                    this.okRespTimeout = false;
+                    this.modal.show("No Response", "The board stopped responding. Please check the connection.");
+                    return false;
+                }
             }
+        } catch (error) {
+            console.error("Serial write failed:", error);
+            this.modal.show("Serial Error", "Lost connection to the board while sending. Please reconnect.");
+            return false;
         } finally {
             writer.releaseLock()
+            this.sending = false;
         }
-        }
-        else{
-            this.modal.show("Cannot Write", "Cannot write to port. Have you connected?");
-        }
+
+        return true;
     }
 
     async sendRepl() {

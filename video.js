@@ -1,7 +1,39 @@
+// A LumenPnP fiducial is documented as 1mm in diameter (help.html) - used
+// below to size the HoughCircles search band off the live pxPerMm value.
+const FIDUCIAL_DIAMETER_MM = 1;
+
 export class VideoManager {
   constructor(cv) {
     this.cv = cv;
     this.video = null;
+
+    // How many camera pixels correspond to 1mm on the board, at this
+    // camera's working distance/zoom. Everything that has to translate
+    // between on-screen pixels and real board mm - lumen.js's
+    // jogToFiducial() (converts a detected circle's pixel offset into a jog
+    // distance) and CVdetectCircle() below (sizes its fiducial search band) -
+    // reads this live off the VideoManager instance rather than a hardcoded
+    // constant, so retuning it (see the Camera Scale input next to the video
+    // feed) takes effect immediately, with no reload, on a different camera/
+    // lens/working height.
+    this.pxPerMm = 42;
+
+    // HoughCircles' accumulator threshold (param2) - how strong a circle's
+    // edge evidence has to be to count as a fiducial detection. Lower is more
+    // permissive (catches more real fiducials in poor lighting/focus, but
+    // also more silkscreen/pad false positives); higher is stricter (rejects
+    // more false positives, but can start missing real ones too). Exposed
+    // live as the Fiducial Confidence slider under the video feed, read
+    // fresh by CVdetectCircle() on every call, since a single hardcoded
+    // value doesn't hold up across every camera/board/lighting setup.
+    this.fiducialConfidence = 33;
+
+    // The active getUserMedia video track, so zoomBy() below can drive the
+    // camera's own hardware/driver zoom (when the device exposes one) rather
+    // than just visually scaling the canvas - a real zoom changes what the
+    // sensor actually reads out, so CVdetectCircle() sees more detail too,
+    // not just a blown-up version of the same pixels.
+    this.videoTrack = null;
 
     // canvas object that we write to
     this.canvas = null;
@@ -17,25 +49,41 @@ export class VideoManager {
 
     // timer that keeps track of how long we show the cv image
     this.cvDisplayTimer = null;
+
+    // guards the videoTick() requestAnimationFrame loop - without this, a
+    // camera switch (stopVideo then startVideo) leaves the old loop with no
+    // way to know it should stop, and it throws against a now-null
+    // this.video on its next tick instead of exiting cleanly.
+    this.running = false;
   }
 
   async populateCameraList(selectElement) {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+      // Preserve whatever's currently selected across a refresh - this gets
+      // called again once camera permission is granted (so labels are
+      // actually populated instead of blank), and that shouldn't silently
+      // reset a camera the user already picked/has running.
+      const previousValue = selectElement.value;
+
       selectElement.innerHTML = '';
-      
-      videoDevices.forEach(device => {
+
+      videoDevices.forEach((device, index) => {
         const option = document.createElement('option');
         option.value = device.deviceId;
-        option.text = device.label || `Camera ${videoDevices.indexOf(device) + 1}`;
+        option.text = device.label || `Camera ${index + 1}`;
         selectElement.appendChild(option);
-        
-        // if likely top cam, select it
-        if (device.label && device.label.toLowerCase().includes('top')) {
-          selectElement.value = device.deviceId;
-        }
       });
+
+      if (previousValue && videoDevices.some(device => device.deviceId === previousValue)) {
+        selectElement.value = previousValue;
+      } else {
+        // if likely top cam, select it
+        const topCam = videoDevices.find(device => device.label && device.label.toLowerCase().includes('top'));
+        if (topCam) selectElement.value = topCam.deviceId;
+      }
     } catch (err) {
       console.error('Error populating camera list:', err);
     }
@@ -48,6 +96,8 @@ export class VideoManager {
           deviceId: cameraId ? { exact: cameraId } : undefined
         }
       });
+
+      this.videoTrack = stream.getVideoTracks()[0] || null;
 
       this.video = document.createElement('video');
       this.video.srcObject = stream;
@@ -67,8 +117,49 @@ export class VideoManager {
 
       this.frame = new this.cv.Mat(this.video.videoHeight, this.video.videoWidth, this.cv.CV_8UC4);
 
+      this.running = true;
       this.videoTick();
-    
+
+  }
+
+  // The device's zoom range/step, or null if this camera/browser doesn't
+  // expose a hardware zoom control at all (common on cheap webcams - there's
+  // no visual fallback for that case by design, see zoomBy()).
+  getZoomCapabilities() {
+    if (!this.videoTrack || typeof this.videoTrack.getCapabilities !== 'function') return null;
+    const caps = this.videoTrack.getCapabilities();
+    return caps && caps.zoom ? caps.zoom : null;
+  }
+
+  // Steps the camera's real hardware/driver zoom in (direction > 0) or out
+  // (direction < 0), by a fraction of this device's own reported zoom range
+  // - device zoom ranges/units vary a lot (e.g. one camera's 100-400 vs.
+  // another's 1-4), so a fixed step wouldn't feel consistent across cameras
+  // the way a percentage of each one's own range does. Snapped to the
+  // device's own step so a value it doesn't accept isn't sent. Returns
+  // whether it actually applied (false when this camera has no zoom
+  // capability, or the constraint gets rejected) so the caller can let the
+  // user know rather than failing silently.
+  async zoomBy(direction) {
+    const zoomCaps = this.getZoomCapabilities();
+    if (!zoomCaps) return false;
+
+    const settings = this.videoTrack.getSettings();
+    const current = settings.zoom ?? zoomCaps.min;
+    const range = zoomCaps.max - zoomCaps.min;
+    const step = zoomCaps.step || (range * 0.05);
+
+    let next = current + direction * step;
+    next = Math.min(zoomCaps.max, Math.max(zoomCaps.min, next));
+    if (zoomCaps.step) next = Math.round(next / zoomCaps.step) * zoomCaps.step;
+
+    try {
+      await this.videoTrack.applyConstraints({ advanced: [{ zoom: next }] });
+      return true;
+    } catch (err) {
+      console.warn('Camera zoom failed:', err);
+      return false;
+    }
   }
 
   addReticle(frame){
@@ -123,7 +214,24 @@ export class VideoManager {
         this.cv.cvtColor(this.cvFrame, gray, this.cv.COLOR_RGBA2GRAY);
         this.cv.GaussianBlur(gray, gray, new this.cv.Size(9, 9), 2, 2);
         let circles = new this.cv.Mat();
-        
+
+        // A real fiducial should read as FIDUCIAL_DIAMETER_MM's worth of
+        // radius in pixels at this camera's current pxPerMm. HoughCircles'
+        // minRadius/maxRadius used to be a nearly unbounded 1-50px, which let
+        // in any circular-ish blob from a stray pixel up to a huge smudge -
+        // silkscreen text loops, round pads/vias, logos, etc. Searching a
+        // band around the expected radius instead rejects most of those
+        // before they can ever be considered. +/-55% margin (loosened from an
+        // initial +/-40%, which was cutting out real fiducials too along with
+        // the false positives - real-world focus/lighting/reflectivity noise
+        // in the Hough radius estimate, plus how far off pxPerMm itself might
+        // be from this camera's true value, both need more headroom than
+        // that). Computed fresh every call (not cached) since pxPerMm can be
+        // retuned live from the Camera Scale input.
+        const expectedRadiusPx = (FIDUCIAL_DIAMETER_MM / 2) * this.pxPerMm;
+        const minRadius = Math.max(1, Math.round(expectedRadiusPx * 0.45));
+        const maxRadius = Math.max(minRadius + 1, Math.round(expectedRadiusPx * 1.55));
+
         this.cv.HoughCircles(
             gray,
             circles,
@@ -131,9 +239,14 @@ export class VideoManager {
             1,
             gray.rows / 8,
             50,
-            30,
-            1,
-            50
+            // Accumulator threshold - how strong a circle's edge evidence has
+            // to be to count as a detection. Live off this.fiducialConfidence
+            // (see the Fiducial Confidence slider under the video feed)
+            // rather than a single hardcoded value - no one number holds up
+            // across every camera/board/lighting combination.
+            this.fiducialConfidence,
+            minRadius,
+            maxRadius
         );
 
         let bestCircle = null;
@@ -149,7 +262,7 @@ export class VideoManager {
               }else{
                 // Choose circle closest to center
                 let center_x = this.cvFrame.cols/2;
-                let center_y = this.cvFrame.cols/2;
+                let center_y = this.cvFrame.rows/2;
                 let dx = x-center_x;
                 let dy = y-center_y;
                 let dist = Math.sqrt(dx*dx+dy*dy);
@@ -173,7 +286,12 @@ export class VideoManager {
         gray.delete();
         circles.delete();
 
-        this.addReticle(this.cvFrame);
+        // addReticle() returns a new clone rather than drawing in place, so
+        // the old (reticle-less) this.cvFrame needs deleting once it's
+        // replaced - otherwise this leaks a Mat every call.
+        const cvFrameWithReticle = this.addReticle(this.cvFrame);
+        this.cvFrame.delete();
+        this.cvFrame = cvFrameWithReticle;
 
         return bestCircle;
 
@@ -201,6 +319,8 @@ export class VideoManager {
   // then it kicks off whichever we're doing!  
   videoTick() {
 
+    if (!this.running) return;
+
     if (this.displayCv) {
 
         this.showFrame(this.cvFrame);
@@ -211,9 +331,18 @@ export class VideoManager {
 
         this.loadNewFrame();
 
-        this.frame = this.addReticle(this.frame);
-
-        this.showFrame(this.frame);
+        // Reticle is for on-screen display only - draw it onto a disposable
+        // clone rather than reassigning this.frame to the reticle-drawn
+        // version. this.frame is the canonical raw frame CVdetectCircle()
+        // clones from for actual fiducial detection; overwriting it here
+        // used to bake the reticle's own bright crosshair permanently into
+        // that frame - right in the center, exactly where a fiducial gets
+        // centered to be detected, interfering with (or fully occluding) the
+        // real edge Hough needs to trace. displayFrame is deleted right
+        // after use so this doesn't leak a Mat every tick at ~60Hz.
+        const displayFrame = this.addReticle(this.frame);
+        this.showFrame(displayFrame);
+        displayFrame.delete();
     }
 
     // set next frame to fire
@@ -245,22 +374,35 @@ export class VideoManager {
 
   stopVideo(canvas) {
     this.isProcessing = false;
-    
+    this.running = false;
+
     if (this.processTimer) {
       clearTimeout(this.processTimer);
       this.processTimer = null;
     }
-    
+
     if (this.processedFrame) {
       this.processedFrame.delete();
       this.processedFrame = null;
     }
-    
+
+    if (this.frame) {
+      this.frame.delete();
+      this.frame = null;
+    }
+
+    if (this.cvFrame) {
+      this.cvFrame.delete();
+      this.cvFrame = null;
+    }
+
     if (this.video && this.video.srcObject) {
       this.video.srcObject.getTracks().forEach(track => track.stop());
-      this.video.remove(); 
-      this.video = null; 
+      this.video.remove();
+      this.video = null;
     }
+
+    this.videoTrack = null;
 
     if (this.src) {
       this.src.delete();
