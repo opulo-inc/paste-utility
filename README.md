@@ -3,12 +3,20 @@
 The LumenPnP Paste Utility is a web tool for generating and sending paste dispensing Gcode to a LumenPnP equipped with a Paste Extruder Toolhead.
 
 Designed to work with
-- [22 Gauge 1/4" needle Luer Lock tips](https://www.mcmaster.com/75165A125/)
+- Angled luer lock syringe tips with presets for: 20, 22, 23, and 25GA tappered nozzles
 - PCBs with at least three 1mm diameter circular fiducials
 
 ## Running Locally
 
-With vite installed, run:
+1. Install [node.js](https://nodejs.org/en/download) so we can use the package manager npm to continue
+
+2. Go to you cloned directory
+
+3. Install vite first with:
+
+`npm install vite`
+
+4. Then start server:
 
 `npm run dev`
 
