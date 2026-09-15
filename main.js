@@ -851,79 +851,143 @@ if (extrudeBtn) {
 // Stop click actually takes effect within about one chunk's worth of motion
 // instead of only after the whole purge has already run - same
 // check-between-sends pattern Job.run() uses for its own "close to cancel".
+//
+// Both stages (picking a duration, then watching it run) go through the
+// shared toast's real toast.show()/receivedInput mechanism - same as every
+// other toast-driven flow in job.js - rather than poking toastContent/
+// toastObject directly. That matters here specifically: toast.js's own
+// close (X) button always resolves whatever toast.show() call is currently
+// pending, so routing through it is what makes that button actually work as
+// "cancel" at both stages, and what makes "the toast closing" and "the
+// purge actually stopping" the same event instead of two things that could
+// drift out of sync (closing without stopping the motion, or a Stop click
+// that doesn't close the toast).
 const PURGE_FEEDRATE = 100000; // deg/min, matches the previous fixed purge's feedrate
 // A quarter of the old fixed 200000-degree purge (which took 200000/100000 =
 // 2 minutes at PURGE_FEEDRATE) - 30s/50000deg is just the starting default
 // now, since the toast below lets it be changed per-purge.
 const DEFAULT_PURGE_SECONDS = 30;
-const PURGE_CHUNK_DEGREES = 2000; // ~1.2s per chunk at PURGE_FEEDRATE - the worst-case Stop latency
+// Each chunk is its own G0 move, and the M400 after it (see the loop below)
+// forces the firmware's motion queue empty before the next chunk is sent -
+// so every chunk boundary is a real stop: the auger ramps down to 0 at the
+// end of one chunk and back up from 0 at the start of the next, instead of
+// Marlin's planner blending consecutive moves into one continuous
+// accelerate-cruise-decelerate profile the way it would if chunks were
+// queued back to back. That's what read as "speeding up and slowing down"
+// with the old 2000-degree (~1.2s) chunk size - each ramp itself is quick,
+// but there were ~25 of them back to back over a 30s purge. Sizing chunks
+// in whole seconds instead spaces those ramp cycles out enough to read as
+// one continuous purge - 5s means at most 6 of them over the 30s default,
+// each brief relative to the chunk - at the cost of a longer worst-case
+// Stop latency (now ~5s instead of ~1.2s: Stop only ever lets the
+// currently in-flight chunk finish, never queues another).
+const PURGE_CHUNK_SECONDS = 5;
+const PURGE_CHUNK_DEGREES = PURGE_CHUNK_SECONDS * (PURGE_FEEDRATE / 60);
 
-let purgeStopRequested = false;
 let purgeRunning = false;
 
 const purgeAugerBtn = document.getElementById('purgeAuger');
 if (purgeAugerBtn) {
-  purgeAugerBtn.addEventListener('click', () => {
+  purgeAugerBtn.addEventListener('click', async () => {
     if (purgeRunning) return; // already showing/running its own toast
     if (currentJob.isRunning) {
       alert("Can't purge the auger while a job is running.");
       return;
     }
-    showPurgeSetupToast();
+
+    purgeRunning = true;
+    purgeAugerBtn.disabled = true;
+    try {
+      const seconds = await promptPurgeDuration();
+      if (seconds != null) await runPurge(seconds);
+    } finally {
+      purgeAugerBtn.disabled = false;
+      purgeRunning = false;
+    }
   });
 }
 
-function showPurgeSetupToast() {
-  toast.toastContent.innerHTML = `
-    Purge Auger - runs the auger for the duration below, pump on throughout.<br>
-    <label>Duration (seconds): <input type="number" id="purgeDurationInput" min="1" max="600" step="1" value="${DEFAULT_PURGE_SECONDS}"></label>
-    <button id="purgeStartBtn" class="goldenrod-button" type="button">Start</button>
-  `;
-  toast.toastObject.style.display = "flex";
-
-  document.getElementById('purgeStartBtn').addEventListener('click', () => {
+// Shows the duration-entry toast and resolves with the chosen number of
+// seconds, or null if closed/cancelled (toast.js's close button always
+// resolves a pending toast.show() with `false`).
+async function promptPurgeDuration() {
+  const resultPromise = toast.show(
+    `Purge Auger - runs the auger for the duration below, pump on throughout.<br>` +
+    `<label>Duration (seconds): <input type="number" id="purgeDurationInput" min="1" max="600" step="1" value="${DEFAULT_PURGE_SECONDS}"></label>` +
+    `<button id="purgeStartBtn" class="goldenrod-button" type="button">Start</button>`
+  );
+  // toast.show() already reset receivedInput and set the markup above
+  // synchronously before returning the (still-pending) promise, so the
+  // button exists in the DOM right now to wire up.
+  document.getElementById('purgeStartBtn')?.addEventListener('click', () => {
     const input = document.getElementById('purgeDurationInput');
-    const seconds = Math.max(1, Number(input.value) || DEFAULT_PURGE_SECONDS);
-    runPurge(seconds);
+    toast.receivedInput = Math.max(1, Number(input?.value) || DEFAULT_PURGE_SECONDS);
   });
+  const result = await resultPromise;
+  return result === false ? null : result;
 }
 
+// Runs the actual chunked purge, showing live progress in a second
+// toast.show() call - stoppable via either its own "Stop" button or the
+// toast's normal close (X) button, both of which resolve the SAME pending
+// promise (see toast.js), so either one both closes the toast and stops the
+// remaining motion together.
 async function runPurge(seconds) {
-  purgeRunning = true;
-  purgeStopRequested = false;
-  purgeAugerBtn.disabled = true;
-
   const totalDegrees = seconds * (PURGE_FEEDRATE / 60);
   // Positive B extrudes on this auger; invert direction if invertDispense is enabled
   const direction = currentJob.invertDispense ? -1 : 1;
+  let stopRequested = false;
 
-  toast.toastContent.innerHTML = `
-    Purging auger (${seconds}s)... <span id="purgeProgress">0%</span><br>
-    <button id="purgeStopBtn" class="goldenrod-button" type="button">Stop</button>
-  `;
-  toast.toastObject.style.display = "flex";
-  document.getElementById('purgeStopBtn').addEventListener('click', () => {
-    purgeStopRequested = true;
+  const donePromise = toast.show(
+    `Purging auger (${seconds}s)... <span id="purgeProgress">0%</span><br>` +
+    `<button id="purgeStopBtn" class="goldenrod-button" type="button">Stop</button>`
+  );
+  document.getElementById('purgeStopBtn')?.addEventListener('click', () => {
+    toast.receivedInput = 'stop';
   });
+  donePromise.then(() => { stopRequested = true; });
 
   await serial.send([`M106 P2 S${Math.round(currentJob.vacuumPressure / 100 * 255)}`, `M906 B ${currentJob.motorCurrent}`, "G91"]);
 
   let sentDegrees = 0;
-  while (sentDegrees < totalDegrees && !purgeStopRequested) {
+  while (sentDegrees < totalDegrees && !stopRequested) {
     const chunk = Math.min(PURGE_CHUNK_DEGREES, totalDegrees - sentDegrees);
-    const sendOk = await serial.send([`G0 B${direction * chunk} F${PURGE_FEEDRATE}`]);
+    // M400 ("Finish Moves") is the fix here, not just the chunking: Marlin
+    // (this firmware - see the G4 dwell already used for the plunger's own
+    // extrude timing in job.js's plungerDispenseCommands()) sends a G0
+    // move's own "ok" back as soon as the move is QUEUED into the planner,
+    // not once it's physically finished - moves can queue several deep, so
+    // without this every chunk's "ok" was coming back near-instantly and
+    // the whole loop (all ~totalDegrees/PURGE_CHUNK_DEGREES chunks) was
+    // dumping onto the firmware in a fraction of a second, way ahead of the
+    // auger's real physical position. That's exactly why the displayed
+    // percentage didn't track reality, and why Stop appeared to do nothing:
+    // by the time it was clicked, every chunk was already queued and the
+    // firmware just kept working through all of them regardless. M400
+    // blocks its own "ok" until the queue actually drains, so this await
+    // now genuinely waits for the physical motion, sentDegrees/the percentage
+    // only advances once that chunk is real, and the while condition above
+    // gets a real chance to see stopRequested between chunks - so Stop now
+    // only lets the current (~PURGE_CHUNK_SECONDS) chunk finish, not the
+    // whole queue.
+    const sendOk = await serial.send([`G0 B${direction * chunk} F${PURGE_FEEDRATE}`, "M400"]);
     if (!sendOk) break;
 
     sentDegrees += chunk;
+    // Updates the progress span's own text in place - doesn't touch the
+    // Stop button or its listener, unlike replacing toastContent.innerHTML
+    // wholesale would.
     const progressEl = document.getElementById('purgeProgress');
     if (progressEl) progressEl.textContent = `${Math.round(sentDegrees / totalDegrees * 100)}%`;
   }
 
   await serial.send(["G90", "M107 P2"]);
 
-  toast.hide();
-  purgeAugerBtn.disabled = false;
-  purgeRunning = false;
+  // If the loop ended on its own (ran the full duration, or a send failed)
+  // rather than via Stop/close, the toast is still showing and its
+  // waitForUserSelection() poll is still waiting - resolve it the normal way
+  // instead of leaving that poll dangling forever.
+  if (!stopRequested) toast.receivedInput = 'finished';
 }
 
 // Offset tuning: nudge the dispense position by 0.1mm and jog the physical tip to match.
@@ -1240,8 +1304,12 @@ function setupSetupChecklist(){
     const steps = [
       { id: 'checklistStepConnect', done: connected, locked: false, reason: '' },
       { id: 'checklistStepImport', done: jobLoaded, locked: false, reason: '' },
-      { id: 'checklistStepRoughPos', done: roughDone, locked: !connected || !hasThreeFids,
-        reason: !connected ? 'Connect to the machine first' : !hasThreeFids ? 'Import a job with exactly 3 fiducials first' : '' },
+      // Doesn't lock on !hasThreeFids anymore - findBoardRoughPosition()
+      // itself now offers designating 3 pads as fiducial substitutes (see
+      // Job.pickPadsAsFiducials()) when a board doesn't already have exactly
+      // 3, so it's no longer a hard prerequisite to even attempt this step.
+      { id: 'checklistStepRoughPos', done: roughDone, locked: !connected || !jobLoaded,
+        reason: !connected ? 'Connect to the machine first' : !jobLoaded ? 'Import a job first' : '' },
       { id: 'checklistStepFidCal', done: fidCalDone, locked: !connected || !roughDone,
         reason: !connected ? 'Connect to the machine first' : !roughDone ? 'Set the rough board position first' : '' },
       { id: 'checklistStepNozzleCal', done: nozzleCalDone, locked: !connected,

@@ -58,11 +58,17 @@ const DEFAULT_BUILD_PLATE = 'standard';
 // coordinates to real machine coordinates, so subtracting this origin is the
 // last step to land in this canvas's plate-local frame. Purely a drawing
 // concern - nothing that touches gcode generation reads this.
-const PLATE_ORIGIN_MACHINE_MM = { x: 7, y: 162 };
+const PLATE_ORIGIN_MACHINE_MM = { x: 7, y: 95.5 };
 
 // Bottom-center keep-out box (mm) present on every build plate - oriented
 // with its long side running front-to-back (Y), not side-to-side.
 const NO_GO_ZONE_MM = { width: 90, height: 120 };
+
+// toast.receivedInput sentinel for "switch to picking pads instead of
+// fiducial candidates" - see showToastWithButton()/pickPadsAsFiducials().
+// Just needs to be a value that can never collide with a real Fiducial
+// object or the `false` a closed toast resolves with.
+const USE_PADS_FIDUCIAL_SENTINEL = 'use-pads-as-fiducials';
 
 // Formats a millisecond duration as m:ss (e.g. 754321 -> "12:34") for the
 // job run timer.
@@ -1233,6 +1239,106 @@ export class Job {
         return closestPoint;
     }
 
+    // Shows a toast whose text ends with an inline button; clicking that
+    // button resolves the toast with `buttonValue` immediately, instead of
+    // waiting for whatever the caller's own click handler would otherwise
+    // feed toast.receivedInput (a canvas click, in every caller here).
+    // Closing the toast normally still resolves with `false`, same as any
+    // other toast.show(). Used to offer "use 3 pads instead" as an escape
+    // hatch from both the real-fiducial-candidate click-through
+    // (loadGerberFiles()) and findBoardRoughPosition()'s "needs exactly 3
+    // fiducials" gate - see pickPadsAsFiducials().
+    async showToastWithButton(message, buttonLabel, buttonValue){
+        const resultPromise = this.toast.show(
+            `${message} <button id="toastInlineActionBtn" class="goldenrod-button" type="button" style="margin-left:8px;">${buttonLabel}</button>`
+        );
+        // toast.show() already reset receivedInput and set the markup above
+        // synchronously before returning the (still-pending) promise, so the
+        // button exists in the DOM right now to wire up.
+        document.getElementById('toastInlineActionBtn')?.addEventListener('click', () => {
+            this.toast.receivedInput = buttonValue;
+        });
+        return await resultPromise;
+    }
+
+    // Lets the user designate 3 existing dispense points (ideally ones near
+    // the PCB's corners) as fiducial substitutes, for a board with no real
+    // fiducial features - or bad/insufficient auto-detected candidates (see
+    // findFiducialCandidates() in gerberImport.js). Reuses the exact same
+    // toast-driven "click a point in the canvas" interaction the
+    // real-fiducial pick flow uses (see loadGerberFiles()), just matching
+    // against board.placements (via returnClosestPlacementFromClickCoordinates)
+    // instead of board.fiducials, since this board has no (or not enough)
+    // fiducial candidates to click. Offered from both loadGerberFiles()
+    // (right after import) and findBoardRoughPosition() (if a board still
+    // doesn't have exactly 3 fiducials by the time that's needed) via
+    // showToastWithButton().
+    //
+    // Overwrites board.fiducials with the 3 picks if all 3 are actually
+    // picked; leaves it untouched (and returns false) if cancelled partway
+    // through. The picked points become plain Fiducials with no
+    // searchX/searchY or calX/calY yet - Get Rough Board Position / Perform
+    // Fid Cal fill those in exactly like a real fiducial, jogging/vision-
+    // centering on whatever's physically at that pad's location on the real
+    // board. Doesn't manage this._boardFlowActive itself - callers that are
+    // themselves a top-level flow (findBoardRoughPosition()) are expected to
+    // already be holding it, same as every other sub-step those call.
+    async pickPadsAsFiducials(board = this.activeBoard){
+        if (board.placements.length === 0) {
+            alert('This board has no dispense points to pick from - import a gerber first.');
+            return false;
+        }
+
+        function sendPlacementClickToToast(event){
+            const rect = this.jobCanvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = this.jobCanvas.height - (event.clientY - rect.top); // Flip Y coordinate
+
+            const closest = this.returnClosestPlacementFromClickCoordinates(x, y);
+            if (closest) {
+                this.toast.receivedInput = closest;
+
+                const ctx = this.jobCanvas.getContext("2d");
+                ctx.fillStyle = "lime";
+                ctx.fillRect(closest.canvasX - 4, this.jobCanvas.height - closest.canvasY - 4, 8, 8);
+            } else {
+                console.log("no matching pad click");
+            }
+        }
+
+        // Same bind-once-and-share-the-reference requirement as
+        // loadGerberFiles()'s boundSendClickToToast - see its comment.
+        const boundClick = sendPlacementClickToToast.bind(this);
+        this.jobCanvas.addEventListener('click', boundClick);
+        this._pickingFiducials = true;
+
+        const picks = [];
+        try {
+            for (let i = 1; i <= 3; i++) {
+                const result = await this.toast.show(`Click a pad to use as Fiducial ${i} - a pad near a corner works best.`);
+                if (!result) break; // cancelled - picks stays short, handled below
+                picks.push(result);
+            }
+        } finally {
+            this.jobCanvas.removeEventListener('click', boundClick);
+            this._pickingFiducials = false;
+        }
+
+        if (picks.length !== 3) {
+            console.warn('Pad-as-fiducial selection was cancelled.');
+            return false;
+        }
+
+        // Same shape as a mask-derived fiducial candidate (see
+        // loadGerberFiles()) - a plain Fiducial at the pad's real design
+        // position and the board's default touch-off Z.
+        board.fiducials = picks.map(p => new Fiducial(p.x, p.y, 31.5));
+
+        this.loadJobIntoPositionList();
+        this.drawJobToCanvas();
+        return true;
+    }
+
     // Turns raw pad footprints (pastePads - the same shapes kept in
     // this.padShapes for the pad-outline overlay) into dispense-point
     // placements, using whatever Advanced Settings tab tuning is live right
@@ -1507,10 +1613,15 @@ export class Job {
                 // Clicking asks returnClosestFidFromClickCoordinates() to match a candidate
                 // within a small pixel threshold - with fewer than 3 candidates on the board,
                 // some of those clicks can never match anything, so the toast-driven flow
-                // below would wait forever. Skip it without blocking the view of the board -
-                // paste points are already imported and visible; fiducials can be added
-                // manually with Capture New Position.
-                console.warn(`Only found ${board.fiducials.length} fiducial candidate(s) on the mask layer (need 3). Add fiducials manually if needed.`);
+                // below would wait forever. Skip it without blocking the view of the board - but
+                // offer designating 3 pads as fiducial substitutes instead (see
+                // pickPadsAsFiducials()), for a board with no real fiducial features at all.
+                console.warn(`Only found ${board.fiducials.length} fiducial candidate(s) on the mask layer (need 3). Offering pad-based fiducials instead.`);
+                const usePads = await this.showToastWithButton(
+                    `Only found ${board.fiducials.length}/3 fiducial candidates on this board.`,
+                    'Use 3 Pads as Fiducials', true
+                );
+                if (usePads) await this.pickPadsAsFiducials(board);
                 return {padCount: board.placements.length, fiducialCount: board.fiducials.length};
             }
 
@@ -1556,25 +1667,34 @@ export class Job {
             this._pickingFiducials = true;
 
             try {
-                // show the first toast asking them to click
-                const fid1_object = await this.toast.show("Please click on FID1 in the display.");
+                // Each of these resolves to the clicked Fiducial candidate, `false` if
+                // the user closed the toast, or USE_PADS_FIDUCIAL_SENTINEL if they hit
+                // the toast's "Use 3 pads instead" button (see showToastWithButton()) -
+                // an escape hatch for when the auto-detected candidates are wrong/unwanted
+                // even though there were 3+ of them. Checked one at a time (not all
+                // three up front) so hitting that button on, say, FID2 doesn't first
+                // force clicking through FID3 too.
+                let switchToPads = false;
+                const pickedFids = [];
+                for (let i = 1; i <= 3; i++) {
+                    const result = await this.showToastWithButton(
+                        `Please click on FID${i} in the display.`, 'Use 3 pads instead', USE_PADS_FIDUCIAL_SENTINEL
+                    );
+                    if (result === USE_PADS_FIDUCIAL_SENTINEL) { switchToPads = true; break; }
+                    if (!result) break; // cancelled - pickedFids stays short, handled below
+                    pickedFids.push(result);
+                }
 
-                // show the second toast asking them to click
-                const fid2_object = await this.toast.show("Please click on FID2 in the display.");
-
-                // show the third toast asking them to click
-                const fid3_object = await this.toast.show("Please click on FID3 in the display.");
-
-                // Each toast resolves to the clicked Fiducial object, or `false` if
-                // the user closed the toast instead of clicking one (toast.js's
-                // close button always resolves with false). Only replace the
-                // mask-derived candidates if all three were actually picked -
-                // otherwise leave them alone rather than clobbering board.fiducials
-                // with a mix of real Fiducial objects and `false`, which would crash
-                // the very next drawJobToCanvas() (it stamps canvasX/canvasY onto
-                // every fiducial, and `false` has nowhere to put one).
-                const pickedFids = [fid1_object, fid2_object, fid3_object];
-                if (pickedFids.every(fid => fid)) {
+                if (switchToPads) {
+                    // Tear down THIS listener before handing off - otherwise
+                    // it stays attached (armed by _pickingFiducials, same as
+                    // now) for the whole pickPadsAsFiducials() flow below,
+                    // which sets up its own, and every click during that
+                    // flow fires both handlers at once.
+                    this.jobCanvas.removeEventListener('click', boundSendClickToToast);
+                    this._pickingFiducials = false;
+                    await this.pickPadsAsFiducials(board);
+                } else if (pickedFids.length === 3) {
                     board.fiducials = pickedFids;
                 } else {
                     console.warn('Fiducial selection was cancelled - keeping the auto-detected candidates instead.');
@@ -1602,10 +1722,6 @@ export class Job {
 
     async findBoardRoughPosition(){
         if (this.warnIfBoardFlowActive()) return;
-        if (this.fiducials.length !== 3) {
-            alert('This board needs exactly 3 fiducials before its rough position can be set.');
-            return;
-        }
 
         // Pinned to whichever board is active right now, for the whole flow
         // - see the big comment on this._boardFlowActive in the constructor.
@@ -1615,11 +1731,29 @@ export class Job {
         // active-board aliases, which could start pointing somewhere else
         // mid-flow. switchToBoard()/addBoard()/removeBoard() also refuse to
         // run at all while _boardFlowActive is true, so in practice this
-        // never actually changes underneath - this is defense in depth.
+        // never actually changes underneath - this is defense in depth. Set
+        // before the fiducial-count check below too, since that can itself
+        // kick off pickPadsAsFiducials()'s own toast-driven sub-flow.
         const board = this.activeBoard;
         this._boardFlowActive = true;
 
         try {
+            if (board.fiducials.length !== 3) {
+                // No real fiducials to jog to yet - offer pads as a
+                // substitute (see pickPadsAsFiducials()) right here instead
+                // of just refusing, so a board that skipped (or never had)
+                // the import-time fiducial pick can still get through rough
+                // position without going back to re-import.
+                const usePads = await this.showToastWithButton(
+                    'This board needs exactly 3 fiducials before its rough position can be set.',
+                    'Use 3 Pads as Fiducials', true
+                );
+                if (!usePads) return;
+
+                const picked = await this.pickPadsAsFiducials(board);
+                if (!picked) return;
+            }
+
             // request in toast to jog to fid1
             await this.toast.show("Please jog the camera to be centered on FID1.");
 
@@ -1675,7 +1809,15 @@ export class Job {
 
             console.log(board.placements);
 
-            this.loadJobIntoPositionList()
+            this.loadJobIntoPositionList();
+            // transformPlacements() above already set board.fidCalMatrix from
+            // these rough (searchX/searchY) positions - same field
+            // performFiducialCalibration()'s more precise pass sets - so
+            // drawJobToCanvas() already knows how to draw this board at its
+            // true rotation/position (see PLATE_ORIGIN_MACHINE_MM). Just
+            // needs an actual redraw to show it now instead of waiting for
+            // some unrelated interaction to trigger the next one.
+            this.drawJobToCanvas();
         } finally {
             this._boardFlowActive = false;
         }
@@ -2695,23 +2837,42 @@ export class Job {
         return commands;
     }
 
-    // Paste Extruder V1 Beta's original syringe-plunger dispenser -
-    // reproduces the exact extrude/retract/dwell sequence from the original
-    // (pre-auger) paste-utility's slice() (see job.js in the sibling
-    // "paste-utility" repo, not this one). That original tracked one running
-    // absolute B position across the whole job (a single G92 B0, then
-    // `G0 B<absolute position>` per point) - mathematically identical to
-    // emitting a relative move every time, since each move's net effect is
-    // just -dispenseDeg then +retractionDeg (or the reverse, inverted) off
-    // wherever B already was. This repo's slice() already does its own
-    // single G92 B0 before the run, so reproducing it as G91 relative moves
-    // here gets the exact same physical motion while fitting the same
-    // per-point, stateless pointDispenseCommands() every hardware profile
-    // uses (including dispenseSinglePoint()'s one-off re-dispense, which the
-    // original neither had nor needed to support).
+    // Paste Extruder V1 Beta's original syringe-plunger dispenser - restores
+    // the FULL original (pre-auger) paste-utility per-point sequence: pump
+    // on, lift slightly, motor current up, extrude, retract, dwell, re-seat,
+    // pump off, wiggle - not just the extrude/retract/dwell core an earlier
+    // version of this function had, which dropped every physical step
+    // around the actual dispense (this mechanism needs the same air-assist/
+    // wiggle help releasing paste from the nozzle that the auger does - the
+    // plunger and syringe don't make that unnecessary).
     //
-    // No pump/air-assist or motor-current commands here - the original had
-    // neither; this mechanism doesn't have M106/M906 equivalents wired up.
+    // That original tracked one running absolute B position across the
+    // whole job (a single G92 B0, then `G0 B<absolute position>` per point)
+    // - mathematically identical to emitting a relative move every time,
+    // since each move's net effect is just -dispenseDeg then +retractionDeg
+    // (or the reverse, inverted) off wherever B already was. This repo's
+    // slice() already does its own single G92 B0 before the run, so
+    // reproducing it as G91 relative moves here gets the exact same
+    // physical motion while fitting the same per-point, stateless
+    // pointDispenseCommands() every hardware profile uses (including
+    // dispenseSinglePoint()'s one-off re-dispense, which the original
+    // neither had nor needed to support).
+    //
+    // Two real bugs in the original's own gcode are deliberately NOT
+    // reproduced: its extrude line used dwellMs (a millisecond time value)
+    // as the extrude AMOUNT instead of dispenseDeg, and its retract amount
+    // was hardcoded to 4 instead of ever reading retractionDegrees - between
+    // them, every V1 dispense silently ignored both fields the Basic
+    // settings tab exposes for this hardware. Pump speed and motor current
+    // reuse the same live-tunable {VACUUM}/{MOTOR_CURRENT} substitution
+    // augerDispenseCommands() (V2, right above) already uses - substituted
+    // by whichever caller sends these (see dispenseSinglePoint()/run()) -
+    // instead of the original's hardcoded S120/B1000, so V1 gets the same
+    // adjust-while-running quality of life those sliders already give V2.
+    // The lift amounts and wiggle count are kept as the original mechanism's
+    // own tuned values rather than reused from V2's - the plunger and auger
+    // are physically different mechanisms, so there's no reason to assume
+    // V2's numbers (a different lift distance, one more wiggle) suit V1 too.
     plungerDispenseCommands(dispenseDeg){
         const retractionDeg = parseFloat(this.retractionDegrees);
         const dwellMs = parseFloat(this.dwellMilliseconds);
@@ -2721,12 +2882,26 @@ export class Job {
         // as the original had it rather than renormalized to match.
         const extrudeSign = this.invertDispense ? 1 : -1;
 
-        return [
-            "G91",                                    // Relative mode
-            `G0 B${extrudeSign * dispenseDeg}`,        // Extrude paste
-            `G0 B${-extrudeSign * retractionDeg}`,     // Retract a small amount
-            `G4 P${dwellMs}`,                          // Dwell and wait for paste to actually extrude
+        const commands = [
+            "G91",                                     // Relative mode
+            "M106 P2 S{VACUUM}",                        // Pump on (speed substituted live at send time)
+            "G0 Z-.5",                                  // Come up .5mm
+            "M906 B {MOTOR_CURRENT}",                   // Extruder current high (substituted live at send time)
+            `G0 B${extrudeSign * dispenseDeg}`,         // Extrude paste
+            `G0 B${-extrudeSign * retractionDeg}`,      // Retract a small amount
+            `G4 P${dwellMs}`,                           // Dwell so the paste finishes flowing
+            "G0 Z.3",                                   // Come down .3mm
+            "M107 P2",                                  // Pump off
         ];
+
+        // Wiggle the tip up/down to help release paste stuck to the nozzle -
+        // the original plunger sequence did this 3 times (V2's auger sequence,
+        // right above, does 4 - kept separate rather than unified).
+        for (let i = 0; i < 3; i++) {
+            commands.push("G0 Z-.5", "G0 Z.3");
+        }
+
+        return commands;
     }
 
     slice(){
@@ -2884,6 +3059,16 @@ export class Job {
         await this.lumen.serial.send(["M906 B 200"]);
         await this.lumen.serial.send(["M107 P2"]);
         await this.lumen.serial.send(["M107 P3"]);
+
+        // Air purge - V2 (auger) only, since P3 is the vacuum pump's channel
+        // and it isn't wired up on the V1 Beta plunger (see the "Right Air"
+        // toggle's own comment in main.js). A brief on/off burst at the very
+        // end of every run, whether it finished or was cancelled (this
+        // function is shared by both), to clear the air line.
+        if (this.hardwareVersion === 'v2') {
+            await this.lumen.serial.send(["M106 P3", "G4 P500", "M107 P3"]);
+        }
+
         await this.lumen.serial.send([`G0 Z${this.travelHeight} F10000`]);
         await this.lumen.serial.send(["G0 X5 Y5"]);
         await this.lumen.serial.send(["G0 F35000"]);
