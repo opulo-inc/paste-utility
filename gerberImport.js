@@ -6,30 +6,33 @@ import {unzipSync} from 'fflate'
 // reasonable starting point and are meant to be tuned once you see real
 // dispense results on your machine/paste/nozzle combo.
 
-// A 0402 pad is nominally about 0.6mm x 0.6mm; 30 degrees of auger rotation is
-// the known-good dispense for a pad that size, so every other pad size scales
-// its dispense degrees off this reference.
+// A 0402 pad is nominally about 0.6mm x 0.6mm; 55.1 degrees of auger rotation
+// is the known-good (real, tested) dispense for a pad that size at the
+// default 0.2mm stencil thickness, so every other pad size scales its
+// dispense degrees off this reference.
 export const NOMINAL_0402_PAD_AREA_MM2 = 0.36
-export const NOMINAL_0402_DISPENSE_DEGREES = 30
+export const NOMINAL_0402_DISPENSE_DEGREES = 55.1
 export const MIN_DISPENSE_DEGREES = 3
 export const MAX_DISPENSE_DEGREES = 300
 
-// Solder stencil thickness the 30-degree-for-a-0402-pad calibration above is
-// itself referenced to. Also the initial/fallback value for
-// Job.stencilThicknessMm (job.js), which only affects the estimated
-// paste-volume figures (see padPasteVolumeMm3()), not dispense degrees - the
-// degrees calibration is whatever's actually been tested/typed into the
-// Basic tab, per thickness+nozzle combo (see calibrationStore in main.js).
+// Solder stencil thickness the 55.1-degree-for-a-0402-pad calibration above is
+// itself referenced to (STENCIL_THICKNESS_DEGREES_22GA's own anchor point) -
+// not a UI default, just this curve's own reference point.
 export const DEFAULT_STENCIL_THICKNESS_MM = 0.2
 
+// Initial/fallback value for Job.stencilThicknessMm (job.js) - what a fresh
+// job (or an older job file missing the field) starts at. Independent of
+// DEFAULT_STENCIL_THICKNESS_MM above: that's where the calibration curve is
+// anchored, this is just which everyday stencil this shop reaches for first.
+export const DEFAULT_JOB_STENCIL_THICKNESS_MM = 0.12
+
 // Preset "equivalent thickness" dropdown options on the Basic settings tab.
-// Just the common off-the-shelf stencil steps - picking one is a shortcut to
-// fill in Stencil Thickness (mm) and look up/save that thickness's own
-// calibration, not a constraint on what value the field can hold.
+// Just the common off-the-shelf stencil steps - picking one fills in the
+// exact mm value the calibration curve above gets sampled at.
 export const STENCIL_THICKNESS_PRESETS_MM = [0.10, 0.12, 0.15, 0.20]
 
-// Nozzle tip the 30-degree-for-a-0402-pad-at-0.2mm baseline above was itself
-// calibrated on - so its ratio (see DEFAULT_NOZZLE_GAUGE_RATIOS) is exactly
+// Nozzle tip the 55.1-degree-for-a-0402-pad-at-0.2mm baseline above was
+// itself calibrated on - so its ratio (see DEFAULT_NOZZLE_GAUGE_RATIOS) is exactly
 // 1, no change.
 export const DEFAULT_NOZZLE_GAUGE = 22
 
@@ -37,27 +40,18 @@ export const DEFAULT_NOZZLE_GAUGE = 22
 // number = wider bore.
 export const NOZZLE_GAUGE_PRESETS = [20, 22, 23, 25]
 
-// localStorage key for user-tuned nozzle-gauge ratio overrides (see
-// DEFAULT_NOZZLE_GAUGE_RATIOS below) - shared between main.js (which reads
-// and writes it as the ratio field is tuned) and job.js (which only reads it,
-// to redisplay the right ratio for a job file's saved nozzleGauge on import).
-// Machine/tip-level, like the hardware version - not part of the job file.
-export const NOZZLE_RATIO_STORAGE_KEY = 'lumenPasteUtility.nozzleGaugeRatios'
-
-// Starting-point ratio (relative to 22GA's 1.0) for each preset nozzle,
-// before any manual tuning - purely a UI/calibration-lookup default (see
-// calibrationStore/nozzleRatioStore in main.js), never read by the pad-area
-// dispense math itself (planPadDispense/totalDispenseDegreesForPad below),
-// which only ever uses whatever final number ends up in the 0402 Pad
-// Dispense Degrees Calibration field. A narrower (higher gauge number)
-// nozzle needs more auger rotation to push the same paste volume through
-// than a wider one does, so ratio climbs with gauge number: 20GA (wider)
-// drops the 0402/0.2mm/22GA baseline to 20 degrees, 25GA (narrowest) raises
-// it to 40 - both directly specified, not derived. 23GA has no direct
-// measurement yet, so it's linearly interpolated across the 22->25 gap.
-// Each entry is meant to be manually tuned (and, per-nozzle, eventually
-// hardcoded/removed from the UI once dialed in) from real dispense results,
-// same as every other constant in this section.
+// Fixed ratio (relative to 22GA's 1.0) for each preset nozzle - feeds
+// suggestedDispenseDegrees() below, which the Basic tab's dispense-multiplier
+// field (main.js) then scales again for whatever this specific tip/paste
+// combo actually needs. Not user-tunable from the UI (there's no ratio field
+// anymore - just pick the nozzle you have mounted); tune these constants
+// directly and redeploy once one's dialed in from real dispense results. A
+// narrower (higher gauge number) nozzle needs more auger rotation to push
+// the same paste volume through than a wider one does, so ratio climbs with
+// gauge number: 20GA (wider) drops the 0402/0.2mm/22GA baseline to 20
+// degrees, 25GA (narrowest) raises it to 40 - both directly specified, not
+// derived. 23GA has no direct measurement yet, so it's linearly interpolated
+// across the 22->25 gap.
 export const DEFAULT_NOZZLE_GAUGE_RATIOS = (() => {
     const gauge22Degrees = NOMINAL_0402_DISPENSE_DEGREES
     const gauge25Degrees = 40
@@ -74,13 +68,12 @@ export const DEFAULT_NOZZLE_GAUGE_RATIOS = (() => {
 // Known (real, tested) 22GA dispense-degrees-per-thickness anchor points, in
 // increasing thickness order - every other stencil-thickness preset's
 // suggested default is linearly interpolated between the two nearest of
-// these (see piecewiseLinear() below), rather than assumed to scale purely
-// linearly off the single 0.2mm reference. Real dispense behavior isn't
-// linear in practice - 0.1mm's tested value (27.5deg) is nowhere near half of
-// 0.2mm's (30deg), likely because a chunk of the rotation is priming/
-// overcoming backlash rather than pure metered volume - which is exactly why
-// this is a manual calibration workflow, filled in with real anchor points
-// as they're tested, rather than a pure formula.
+// these (see piecewiseLinear() below). With only these two anchor points
+// tested so far (0.1mm at 27.5deg, 0.2mm at 55.1deg - which happen to land
+// almost exactly on a straight line through the origin), that interpolation
+// is a straight-line scale between them - add a third real tested anchor
+// point here once one exists, rather than assuming it'll stay linear past
+// two points.
 export const STENCIL_THICKNESS_DEGREES_22GA = [
     {thicknessMm: 0.10, degrees: 27.5},
     {thicknessMm: DEFAULT_STENCIL_THICKNESS_MM, degrees: NOMINAL_0402_DISPENSE_DEGREES},
@@ -206,7 +199,7 @@ export let TIGHT_PITCH_MAX_PAD_WIDTH_MM = 1.0
 // A tight-pitch pad's single stagger dot is nudged along the pad's own long
 // axis by this fraction of the pad's own half-length, so it stays inside the
 // pad's copper. Kept under 1.0 so the dot can't land past the pad edge.
-export let STAGGER_OFFSET_FRACTION = 0.85
+export let STAGGER_OFFSET_FRACTION = 0.45
 
 // Extra multiplier on a tight-pitch (staggered) pad's own dispense volume,
 // on top of whatever ELONGATED_VOLUME_MULTIPLIER already gave it - fine-pitch

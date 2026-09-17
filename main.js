@@ -6,7 +6,7 @@ import { onOpenCVReady } from './opencv-bridge.js';
 import { VideoManager } from './video.js';
 import { Job } from './job.js';
 import { Lumen } from './lumen.js'
-import { getPasteDispenseSettings, setPasteDispenseSettings, resetPasteDispenseSettings, suggestedDispenseDegrees, DEFAULT_NOZZLE_GAUGE_RATIOS, NOZZLE_RATIO_STORAGE_KEY } from './gerberImport.js';
+import { getPasteDispenseSettings, setPasteDispenseSettings, resetPasteDispenseSettings, suggestedDispenseDegrees, DEFAULT_NOZZLE_GAUGE_RATIOS } from './gerberImport.js';
 
 let modal = new modalManager();
 let toast = new toastManager();
@@ -187,7 +187,7 @@ onOpenCVReady(cv => {
   const exportJobButton = document.getElementById('exportJob');
   
   // settings elements
-  const jobDispenseDeg = document.getElementById('jobDispenseDeg');
+  const jobDispenseMultiplier = document.getElementById('jobDispenseMultiplier');
   const jobRetractionDeg = document.getElementById('jobRetractionDeg');
   const jobDwellMs = document.getElementById('jobDwellMs');
   const jobMotionSpeed = document.getElementById('jobMotionSpeed');
@@ -200,105 +200,71 @@ onOpenCVReady(cv => {
   const jobPostGcode = document.getElementById('jobPostGcode');
   const jobInvertDispense = document.getElementById('jobInvertDispense');
 
-  // Remembers the 0402 dispense-degrees calibration you actually tested/
-  // tuned for each stencil-thickness + nozzle-gauge combo, so switching
-  // between presets (see wiring below) recalls what you last dialed in
-  // instead of losing it. A machine/tip/paste-level calibration, not a
-  // per-job one - lives in localStorage like the hardware version, not the
-  // job file (the job file still separately saves/restores whatever
-  // dispenseDegrees value was active when it was exported).
-  const CALIBRATION_STORAGE_KEY = 'lumenPasteUtility.calibrationByThicknessAndNozzle';
-
-  function loadJsonStore(key) {
-    try {
-      return JSON.parse(localStorage.getItem(key) || '{}');
-    } catch {
-      return {};
-    }
-  }
-
-  function saveJsonStore(key, store) {
-    localStorage.setItem(key, JSON.stringify(store));
-  }
-
-  function calibrationKey(nozzleGauge, thicknessMm) {
-    return `${nozzleGauge}|${thicknessMm}`;
-  }
-
-  // Looked-up/saved ratio for this nozzle if it's been manually tuned,
-  // otherwise DEFAULT_NOZZLE_GAUGE_RATIOS' starting-point guess (see
-  // gerberImport.js).
-  function getNozzleRatio(nozzleGauge) {
-    const store = loadJsonStore(NOZZLE_RATIO_STORAGE_KEY);
-    const saved = store[nozzleGauge];
-    return saved != null ? saved : (DEFAULT_NOZZLE_GAUGE_RATIOS[nozzleGauge] ?? 1);
-  }
-
-  function saveNozzleRatio(nozzleGauge, ratio) {
-    const store = loadJsonStore(NOZZLE_RATIO_STORAGE_KEY);
-    store[nozzleGauge] = ratio;
-    saveJsonStore(NOZZLE_RATIO_STORAGE_KEY, store);
-  }
-
-  // Looked-up/saved calibration for this thickness+nozzle combo if you've
-  // already tuned one, otherwise a suggested starting point scaled off the
-  // known 30-degrees-at-0.2mm-on-22GA reference (see
-  // suggestedDispenseDegrees()) - just a starting point to manually test
-  // from, per the calibration workflow this whole panel exists for.
-  function getCalibration(thicknessMm, nozzleGauge) {
-    const store = loadJsonStore(CALIBRATION_STORAGE_KEY);
-    const saved = store[calibrationKey(nozzleGauge, thicknessMm)];
-    if (saved != null) return saved;
-    return Math.round(suggestedDispenseDegrees(thicknessMm, getNozzleRatio(nozzleGauge)) * 10) / 10;
-  }
-
-  function saveCalibration(thicknessMm, nozzleGauge, degrees) {
-    const store = loadJsonStore(CALIBRATION_STORAGE_KEY);
-    store[calibrationKey(nozzleGauge, thicknessMm)] = degrees;
-    saveJsonStore(CALIBRATION_STORAGE_KEY, store);
-  }
-
   const jobStencilThicknessPreset = document.getElementById('jobStencilThicknessPreset');
   const jobStencilThicknessMm = document.getElementById('jobStencilThicknessMm');
   const jobNozzleGaugePreset = document.getElementById('jobNozzleGaugePreset');
-  const jobNozzleGaugeRatio = document.getElementById('jobNozzleGaugeRatio');
 
-  // Reflects the actual mm value in the preset dropdown - "Custom" if it
-  // doesn't match one of the fixed options.
-  function syncStencilPresetSelect(thicknessMm) {
+  // Reflects a stencil thickness (mm) into the preset dropdown/custom-mm-box
+  // pair: picks the matching preset option if there is one (hiding the mm
+  // box, since the preset already says the value), or "Custom" with the mm
+  // box shown and holding the exact value otherwise.
+  function syncStencilThicknessUI(thicknessMm) {
     if (!jobStencilThicknessPreset) return;
     const hasOption = [...jobStencilThicknessPreset.options].some(o => o.value !== 'custom' && Number(o.value) === thicknessMm);
     jobStencilThicknessPreset.value = hasOption ? String(thicknessMm) : 'custom';
+    if (jobStencilThicknessMm) {
+      jobStencilThicknessMm.hidden = hasOption;
+      jobStencilThicknessMm.value = thicknessMm;
+    }
   }
 
-  // Pulls the current stencil thickness + nozzle gauge from their fields,
-  // looks up (or suggests) that combo's calibration, and pushes it all into
-  // the job - then re-runs every already-loaded board through it
-  // immediately, same as an Advanced Settings tweak, so you don't have to
-  // re-import a gerber just to test a different thickness/nozzle/calibration
-  // combo.
-  function applyCalibrationInputs() {
-    if (!jobStencilThicknessMm || !jobNozzleGaugePreset) return;
-    const thicknessMm = Number(jobStencilThicknessMm.value);
+  // Current stencil thickness per whichever of the preset dropdown/custom-mm
+  // box is actually in play right now.
+  function getSelectedStencilThicknessMm() {
+    if (!jobStencilThicknessPreset) return currentJob.stencilThicknessMm;
+    if (jobStencilThicknessPreset.value === 'custom') {
+      return jobStencilThicknessMm ? Number(jobStencilThicknessMm.value) : currentJob.stencilThicknessMm;
+    }
+    return Number(jobStencilThicknessPreset.value);
+  }
+
+  // The 0402 baseline (see suggestedDispenseDegrees()) for this stencil
+  // thickness and nozzle gauge, scaled by the Dispense Multiplier field -
+  // the one number this whole panel is for tuning, once real dispense
+  // results show whether the suggested curve is running heavy or light for
+  // this specific stencil/paste/tip combo.
+  function computeDispenseDegrees(thicknessMm, nozzleGauge, multiplier) {
+    const nozzleRatio = DEFAULT_NOZZLE_GAUGE_RATIOS[nozzleGauge] ?? 1;
+    return Math.round(suggestedDispenseDegrees(thicknessMm, nozzleRatio) * multiplier * 10) / 10;
+  }
+
+  // Pulls the current stencil thickness + nozzle gauge + multiplier from
+  // their fields and pushes the resulting dispense degrees into the job -
+  // then re-runs every already-loaded board through it immediately, same as
+  // an Advanced Settings tweak, so you don't have to re-import a gerber just
+  // to test a different thickness/nozzle/multiplier combo.
+  function applyDispenseSettings() {
+    if (!jobNozzleGaugePreset) return;
+    const thicknessMm = getSelectedStencilThicknessMm();
+    if (!Number.isFinite(thicknessMm) || thicknessMm <= 0) return;
     const nozzleGauge = Number(jobNozzleGaugePreset.value);
     currentJob.stencilThicknessMm = thicknessMm;
     currentJob.nozzleGauge = nozzleGauge;
 
-    syncStencilPresetSelect(thicknessMm);
-    if (jobNozzleGaugeRatio) jobNozzleGaugeRatio.value = getNozzleRatio(nozzleGauge);
-
-    const degrees = getCalibration(thicknessMm, nozzleGauge);
-    currentJob.dispenseDegrees = degrees;
-    if (jobDispenseDeg) jobDispenseDeg.value = degrees;
+    currentJob.dispenseDegrees = computeDispenseDegrees(thicknessMm, nozzleGauge, currentJob.dispenseMultiplier);
 
     currentJob.recomputeDispensePattern();
   }
 
   if (jobStencilThicknessPreset) {
     jobStencilThicknessPreset.addEventListener('change', (e) => {
-      if (e.target.value === 'custom') return; // leave whatever's typed in the mm box alone
-      if (jobStencilThicknessMm) jobStencilThicknessMm.value = e.target.value;
-      applyCalibrationInputs();
+      const hasOption = e.target.value !== 'custom';
+      if (jobStencilThicknessMm) {
+        jobStencilThicknessMm.hidden = hasOption;
+        if (hasOption) jobStencilThicknessMm.value = e.target.value;
+        else jobStencilThicknessMm.focus();
+      }
+      applyDispenseSettings();
     });
   }
 
@@ -306,59 +272,42 @@ onOpenCVReady(cv => {
     jobStencilThicknessMm.addEventListener('change', (e) => {
       const thicknessMm = Number(e.target.value);
       if (!Number.isFinite(thicknessMm) || thicknessMm <= 0) return;
-      applyCalibrationInputs();
+      applyDispenseSettings();
     });
   }
 
   if (jobNozzleGaugePreset) {
     jobNozzleGaugePreset.addEventListener('change', () => {
-      applyCalibrationInputs();
+      applyDispenseSettings();
     });
   }
 
-  if (jobNozzleGaugeRatio) {
-    jobNozzleGaugeRatio.addEventListener('change', (e) => {
-      const ratio = Number(e.target.value);
-      if (!Number.isFinite(ratio) || ratio <= 0) return;
-      saveNozzleRatio(currentJob.nozzleGauge, ratio);
-
-      // The ratio only feeds the SUGGESTED calibration for a not-yet-tuned
-      // thickness/nozzle combo (see getCalibration()) - if the current combo
-      // already has its own explicit saved calibration, leave it alone
-      // rather than silently overwriting a real tuned value.
-      const store = loadJsonStore(CALIBRATION_STORAGE_KEY);
-      if (store[calibrationKey(currentJob.nozzleGauge, currentJob.stencilThicknessMm)] == null) {
-        applyCalibrationInputs();
-      }
-    });
-  }
-
-  if (jobDispenseDeg) {
-    jobDispenseDeg.addEventListener('input', (e) => {
-      currentJob.dispenseDegrees = Number(e.target.value);
+  if (jobDispenseMultiplier) {
+    jobDispenseMultiplier.addEventListener('input', (e) => {
+      const multiplier = Number(e.target.value);
+      if (!Number.isFinite(multiplier) || multiplier <= 0) return;
+      currentJob.dispenseMultiplier = multiplier;
+      currentJob.dispenseDegrees = computeDispenseDegrees(currentJob.stencilThicknessMm, currentJob.nozzleGauge, multiplier);
       // Redraw so placement dots (sized by dispense degrees) reflect the new
       // value immediately for every point still using the job-wide default.
       currentJob.drawJobToCanvas();
     });
 
-    // On blur/enter (not every keystroke): save this value as the
-    // remembered calibration for whichever stencil thickness + nozzle gauge
-    // is currently selected, and re-run every already-loaded board's pads
-    // through it - same "immediately re-test without re-importing" behavior
-    // the Advanced Settings tab tunables already have.
-    jobDispenseDeg.addEventListener('change', (e) => {
-      const degrees = Number(e.target.value);
-      saveCalibration(currentJob.stencilThicknessMm, currentJob.nozzleGauge, degrees);
+    // On blur/enter (not every keystroke): re-run every already-loaded
+    // board's pads through the new multiplier, same "immediately re-test
+    // without re-importing" behavior the Advanced Settings tab tunables
+    // already have.
+    jobDispenseMultiplier.addEventListener('change', () => {
       currentJob.recomputeDispensePattern();
     });
   }
 
-  // Load whatever calibration was last saved for the default (22GA/0.2mm)
-  // combo, if this browser has one from a previous session - a no-op on the
-  // placements themselves until a gerber's actually imported.
-  if (jobStencilThicknessMm) jobStencilThicknessMm.value = currentJob.stencilThicknessMm;
+  // Sync the UI to the job's initial defaults and compute the starting
+  // dispense degrees from them.
+  syncStencilThicknessUI(currentJob.stencilThicknessMm);
   if (jobNozzleGaugePreset) jobNozzleGaugePreset.value = currentJob.nozzleGauge;
-  applyCalibrationInputs();
+  if (jobDispenseMultiplier) jobDispenseMultiplier.value = currentJob.dispenseMultiplier;
+  applyDispenseSettings();
 
   if (jobRetractionDeg) {
     jobRetractionDeg.addEventListener('change', (e) => {
@@ -597,7 +546,10 @@ onOpenCVReady(cv => {
     exportJobButton.addEventListener('click', async () => {
       try {
         // ensure we have the latest values from the UI
-        if (jobDispenseDeg) currentJob.dispenseDegrees = Number(jobDispenseDeg.value);
+        if (jobDispenseMultiplier) {
+          currentJob.dispenseMultiplier = Number(jobDispenseMultiplier.value);
+          currentJob.dispenseDegrees = computeDispenseDegrees(currentJob.stencilThicknessMm, currentJob.nozzleGauge, currentJob.dispenseMultiplier);
+        }
         if (jobRetractionDeg) currentJob.retractionDegrees = Number(jobRetractionDeg.value);
         if (jobDwellMs) currentJob.dwellMilliseconds = Number(jobDwellMs.value);
         if (jobMotionSpeed) currentJob.motionSpeed = Number(jobMotionSpeed.value);
@@ -866,7 +818,7 @@ const PURGE_FEEDRATE = 100000; // deg/min, matches the previous fixed purge's fe
 // A quarter of the old fixed 200000-degree purge (which took 200000/100000 =
 // 2 minutes at PURGE_FEEDRATE) - 30s/50000deg is just the starting default
 // now, since the toast below lets it be changed per-purge.
-const DEFAULT_PURGE_SECONDS = 30;
+const DEFAULT_PURGE_SECONDS = 15;
 // Each chunk is its own G0 move, and the M400 after it (see the loop below)
 // forces the firmware's motion queue empty before the next chunk is sent -
 // so every chunk boundary is a real stop: the auger ramps down to 0 at the
@@ -1130,6 +1082,14 @@ document.getElementById('runJob').addEventListener('click', async () => {
       await currentJob.run();
   } catch (error) {
       console.error('Error during run:', error);
+  }
+});
+
+document.getElementById('resumeJob').addEventListener('click', async () => {
+  try {
+      await currentJob.run(currentJob.lastRunStoppedAtPoint);
+  } catch (error) {
+      console.error('Error during resume:', error);
   }
 });
 

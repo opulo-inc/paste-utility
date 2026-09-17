@@ -1,5 +1,5 @@
 import {fromTriangles, applyToPoint, applyToPoints} from 'transformation-matrix';
-import {importGerberSet, tagTightPitchPads, computeAlternatingSigns, planPadDispense, groupPadsByComponent, findFiducialCandidates, COMPONENT_TYPE_ORDER, placementDotRadiusMm, getPasteDispenseSettings, setPasteDispenseSettings, DEFAULT_STENCIL_THICKNESS_MM, DEFAULT_NOZZLE_GAUGE, DEFAULT_NOZZLE_GAUGE_RATIOS, NOZZLE_RATIO_STORAGE_KEY, padPasteVolumeMm3} from './gerberImport.js';
+import {importGerberSet, tagTightPitchPads, computeAlternatingSigns, planPadDispense, groupPadsByComponent, findFiducialCandidates, COMPONENT_TYPE_ORDER, placementDotRadiusMm, getPasteDispenseSettings, setPasteDispenseSettings, DEFAULT_JOB_STENCIL_THICKNESS_MM, DEFAULT_NOZZLE_GAUGE, padPasteVolumeMm3} from './gerberImport.js';
 
 // 'multipad'/'inferred' only ever appear for a board with no %TO.C%
 // component attributes at all - the pads are still real, but the grouping is
@@ -63,6 +63,19 @@ const PLATE_ORIGIN_MACHINE_MM = { x: 7, y: 95.5 };
 // Bottom-center keep-out box (mm) present on every build plate - oriented
 // with its long side running front-to-back (Y), not side-to-side.
 const NO_GO_ZONE_MM = { width: 90, height: 120 };
+
+// The relative jog performTipCalibration() makes right after the camera is
+// centered on a fiducial, to land the nozzle roughly on that same spot
+// before the user fine-tunes it by hand - i.e. the nominal, as-designed
+// camera-to-nozzle mounting offset. The DIFFERENCE between this and the
+// calibrated board.tipXoffset/tipYoffset the user's fine-tuning actually
+// lands on is how far the real physical nozzle tip's position diverges from
+// that nominal geometry - overwhelmingly a bent tip, since the nominal
+// mounting offset itself is already baked in here. orderPointsByNozzleLean()
+// below uses that difference (not the raw calibrated offset, which is
+// dominated by this ~70mm nominal separation and would barely move for any
+// real bend) as the direction a bent nozzle actually leans.
+const NOZZLE_PREDICTED_OFFSET_MM = { x: -20, y: 67 };
 
 // toast.receivedInput sentinel for "switch to picking pads instead of
 // fiducial candidates" - see showToastWithButton()/pickPadsAsFiducials().
@@ -245,19 +258,24 @@ export class Job {
         // has set a real value.
         this.hardwareVersion = 'v2';
 
-        this.dispenseDegrees = 30;
+        this.dispenseDegrees = 55.1;
+        // Simple overall scale factor on top of the stencil-thickness/
+        // nozzle-gauge suggested dispense degrees (see
+        // computeDispenseDegrees() in main.js) - 1.0 means "use the
+        // suggestion as-is". The one number the Basic tab's Dispense
+        // Multiplier field is for tuning, once real dispense results show
+        // whether that suggestion runs heavy or light for this stencil/
+        // paste/tip combo.
+        this.dispenseMultiplier = 1;
         // Solder stencil thickness this job's boards are (or would be)
-        // printed with - purely an estimated-paste-volume input (see
-        // pointPasteVolumeMm3()/totalPasteVolumeMm3() below), independent of
-        // the dispenseDegrees calibration itself. The Basic tab's stencil
-        // preset buttons (main.js) set this and, separately, look up/save
-        // that thickness's own remembered dispenseDegrees calibration.
-        this.stencilThicknessMm = DEFAULT_STENCIL_THICKNESS_MM;
-        // Which preset nozzle tip this calibration was tuned for - along with
-        // stencilThicknessMm, the other half of the calibration-lookup key
-        // the Basic tab's dropdowns use (see calibrationStore in main.js).
-        // Purely a calibration-lookup label; never affects placement math or
-        // the paste-volume estimate directly.
+        // printed with - both an estimated-paste-volume input (see
+        // pointPasteVolumeMm3()/totalPasteVolumeMm3() below) and, along with
+        // nozzleGauge, an input to the suggested dispenseDegrees above.
+        this.stencilThicknessMm = DEFAULT_JOB_STENCIL_THICKNESS_MM;
+        // Which preset nozzle tip is mounted - along with stencilThicknessMm,
+        // feeds the suggested dispenseDegrees above (see
+        // DEFAULT_NOZZLE_GAUGE_RATIOS in gerberImport.js). Never affects
+        // placement math or the paste-volume estimate directly.
         this.nozzleGauge = DEFAULT_NOZZLE_GAUGE;
         // Only used by plungerDispenseCommands() (hardwareVersion 'v1-beta')
         // - how far (degrees) the plunger backs off after each dispense to
@@ -280,6 +298,23 @@ export class Job {
         this.postGcode = "";
         this.invertDispense = false;
         this.isRunning = false;
+        // True while a run is paused (see pauseRun()/resumeRun()) - only
+        // meaningful while isRunning is also true.
+        this.isPaused = false;
+        // The current run's ordered {board, point} queue and how far
+        // through it the run has gotten (see buildRunQueue()/run()) - used
+        // for the toast's live progress display.
+        this.runQueue = null;
+        this.runProgressIndex = 0;
+        // Set when a run stops before finishing every point - a cancel, a
+        // pause-then-cancel, or a lost connection (see run()) - to whichever
+        // Point was going to be dispensed next, so the Resume Job button
+        // (and updateRunResumeControls()) can offer to continue from there
+        // instead of repasting the whole job. Cleared (null) once a run
+        // completes every point, or a new run starts.
+        this.lastRunStoppedAtPoint = null;
+        this.lastRunStoppedIndex = null;
+        this.lastRunQueueLength = null;
         this.lumen = lumen;
         this.toast = toast;
 
@@ -1351,7 +1386,7 @@ export class Job {
     // a line of dots, large open pads (e.g. QFN thermal pads) get a grid, and
     // pads sitting in a fine pitch row (TSOP/QFP-style) get a single dot that
     // alternates position slightly to cut bridging risk. Each dot's dispense
-    // volume is scaled off a 30-degree-for-a-0402-pad baseline. See
+    // volume is scaled off a 55.1-degree-for-a-0402-pad baseline. See
     // gerberImport.js for the tunable thresholds.
     //
     // Points are returned in component order - grouped by refdes (from the
@@ -1754,8 +1789,17 @@ export class Job {
                 if (!picked) return;
             }
 
+            // Each step below offers an explicit "Continue" button rather than
+            // just the toast's default close/arrow button, so that arrow can
+            // reliably mean "cancel this rough-position pass" - nothing this
+            // flow computes (fiducial search coords, the transform, the Z
+            // plane) gets applied to the board or redrawn until it runs all
+            // the way through, so bailing out at any of these steps leaves
+            // the board exactly as it was before this call.
+
             // request in toast to jog to fid1
-            await this.toast.show("Please jog the camera to be centered on FID1.");
+            let proceed = await this.showToastWithButton("Please jog the camera to be centered on FID1.", 'Continue', true);
+            if (!proceed) return;
 
             // upon hitting continue, grab current position, save to fid1 searchXY
             const fid1Rough = await this.lumen.grabBoardPosition();
@@ -1766,18 +1810,21 @@ export class Job {
             board.fiducials[0].searchY = parseFloat(fid1Rough[1]);
 
             // repeat for fid2 and fid3
-            await this.toast.show("Please jog the camera to be centered on FID2.");
+            proceed = await this.showToastWithButton("Please jog the camera to be centered on FID2.", 'Continue', true);
+            if (!proceed) return;
             const fid2Rough = await this.lumen.grabBoardPosition();
             board.fiducials[1].searchX = parseFloat(fid2Rough[0]);
             board.fiducials[1].searchY = parseFloat(fid2Rough[1]);
 
-            await this.toast.show("Please jog the camera to be centered on FID3.");
+            proceed = await this.showToastWithButton("Please jog the camera to be centered on FID3.", 'Continue', true);
+            if (!proceed) return;
             const fid3Rough = await this.lumen.grabBoardPosition();
             board.fiducials[2].searchX = parseFloat(fid3Rough[0]);
             board.fiducials[2].searchY = parseFloat(fid3Rough[1]);
 
             // ask to jog tip directly touching top surface
-            await this.toast.show("Please jog the paste extruder tip to just barely touch the board.");
+            proceed = await this.showToastWithButton("Please jog the paste extruder tip to just barely touch the board.", 'Continue', true);
+            if (!proceed) return;
 
             // grab z pos and add .2 mm or something
             let zPos = await this.lumen.grabBoardPosition();
@@ -1835,18 +1882,36 @@ export class Job {
         this._boardFlowActive = true;
 
         try {
-            await this.toast.show("Please jog the camera to be centered on any fiducial.");
+            // Each step below offers an explicit "Continue" button rather than
+            // just the toast's default close/arrow button, so that arrow can
+            // reliably mean "cancel, and don't touch this board's offsets" -
+            // e.g. after this whole calibration was opened by mistake. Bailing
+            // out here (before any position has been grabbed or written to the
+            // board) leaves tipXoffset/tipYoffset completely untouched.
+            let proceed = await this.showToastWithButton(
+                "Please jog the camera to be centered on any fiducial.", 'Continue', true
+            );
+            if (!proceed) return;
 
             // upon hitting continue, grab current position, save to fid1 searchXY
             const camPos = await this.lumen.grabBoardPosition();
 
             await this.lumen.serial.send([`G0 Z${this.travelHeight}`]);
 
-            await this.lumen.serial.goToRelative(-45,63);
+            await this.lumen.serial.goToRelative(NOZZLE_PREDICTED_OFFSET_MM.x, NOZZLE_PREDICTED_OFFSET_MM.y);
 
-            await this.lumen.serial.send(["G0 Z46.5"]);
+            await this.lumen.serial.send(["G0 Z48"]);
 
-            await this.toast.show("Please jog the nozzle tip to be perfectly centered on and touching the fiducial.");
+            proceed = await this.showToastWithButton(
+                "Please jog the nozzle tip to be perfectly centered on and touching the fiducial.", 'Continue', true
+            );
+            if (!proceed) {
+                // Nozzle is currently down near the fiducial - lift it back to
+                // a safe travel height before bailing out, same as the normal
+                // completion path does further down.
+                await this.lumen.serial.send([`G0 Z${this.travelHeight}`]);
+                return;
+            }
 
             const nozPos = await this.lumen.grabBoardPosition();
 
@@ -2436,8 +2501,9 @@ export class Job {
             // anything missing at its current/default value).
             if (data.pasteDispenseSettings) setPasteDispenseSettings(data.pasteDispenseSettings);
 
-            this.dispenseDegrees = data.dispenseDegrees || 30;
-            this.stencilThicknessMm = typeof data.stencilThicknessMm !== 'undefined' ? data.stencilThicknessMm : DEFAULT_STENCIL_THICKNESS_MM;
+            this.dispenseDegrees = data.dispenseDegrees || 55.1;
+            this.dispenseMultiplier = typeof data.dispenseMultiplier !== 'undefined' ? data.dispenseMultiplier : 1;
+            this.stencilThicknessMm = typeof data.stencilThicknessMm !== 'undefined' ? data.stencilThicknessMm : DEFAULT_JOB_STENCIL_THICKNESS_MM;
             this.nozzleGauge = typeof data.nozzleGauge !== 'undefined' ? data.nozzleGauge : DEFAULT_NOZZLE_GAUGE;
             this.retractionDegrees = typeof data.retractionDegrees !== 'undefined' ? data.retractionDegrees : 1;
             this.dwellMilliseconds = typeof data.dwellMilliseconds !== 'undefined' ? data.dwellMilliseconds : 100;
@@ -2454,7 +2520,7 @@ export class Job {
             if (buildPlateSelect) buildPlateSelect.value = this.buildPlateId;
 
             // ui update
-            const jobDispenseDeg = document.getElementById('jobDispenseDeg');
+            const jobDispenseMultiplier = document.getElementById('jobDispenseMultiplier');
             const jobRetractionDeg = document.getElementById('jobRetractionDeg');
             const jobDwellMs = document.getElementById('jobDwellMs');
             const jobMotionSpeed = document.getElementById('jobMotionSpeed');
@@ -2467,27 +2533,19 @@ export class Job {
             const jobPostGcode = document.getElementById('jobPostGcode');
             const jobInvertDispense = document.getElementById('jobInvertDispense');
 
-            if (jobDispenseDeg) jobDispenseDeg.value = this.dispenseDegrees;
+            if (jobDispenseMultiplier) jobDispenseMultiplier.value = this.dispenseMultiplier;
 
             const jobStencilThicknessMm = document.getElementById('jobStencilThicknessMm');
-            if (jobStencilThicknessMm) jobStencilThicknessMm.value = this.stencilThicknessMm;
             const jobStencilThicknessPreset = document.getElementById('jobStencilThicknessPreset');
             if (jobStencilThicknessPreset) {
                 const hasOption = [...jobStencilThicknessPreset.options].some(o => o.value !== 'custom' && Number(o.value) === this.stencilThicknessMm);
                 jobStencilThicknessPreset.value = hasOption ? String(this.stencilThicknessMm) : 'custom';
+                if (jobStencilThicknessMm) jobStencilThicknessMm.hidden = hasOption;
             }
+            if (jobStencilThicknessMm) jobStencilThicknessMm.value = this.stencilThicknessMm;
 
             const jobNozzleGaugePreset = document.getElementById('jobNozzleGaugePreset');
             if (jobNozzleGaugePreset) jobNozzleGaugePreset.value = this.nozzleGauge;
-            const jobNozzleGaugeRatio = document.getElementById('jobNozzleGaugeRatio');
-            if (jobNozzleGaugeRatio) {
-                let ratio = DEFAULT_NOZZLE_GAUGE_RATIOS[this.nozzleGauge] ?? 1;
-                try {
-                    const stored = JSON.parse(localStorage.getItem(NOZZLE_RATIO_STORAGE_KEY) || '{}');
-                    if (stored[this.nozzleGauge] != null) ratio = stored[this.nozzleGauge];
-                } catch {}
-                jobNozzleGaugeRatio.value = ratio;
-            }
             if (jobRetractionDeg) jobRetractionDeg.value = this.retractionDegrees;
             if (jobDwellMs) jobDwellMs.value = this.dwellMilliseconds;
             if (jobMotionSpeed) jobMotionSpeed.value = this.motionSpeed;
@@ -2601,6 +2659,12 @@ export class Job {
         // without re-running the whole job.
         const dispenseButton = isFiducial ? '' : '<button class="dispense-btn" title="Paste this pad only">⤓</button>';
 
+        // ...and a "run job starting from here" action - for resuming a
+        // cancelled/failed run at a specific pad rather than wherever it
+        // happened to stop (see run()'s startAtPoint), or just re-pasting
+        // one board's tail end without repasting everything before it.
+        const runFromHereButton = isFiducial ? '' : '<button class="run-from-here-btn" title="Run the job starting from this pad">▶</button>';
+
         // Per-pad enable/disable - lets you skip just this one dot on a run
         // without disabling its whole component. Deliberately not preserved
         // through recomputeDispensePattern() beyond the whole-component state
@@ -2673,6 +2737,7 @@ export class Job {
             <div class="button-group">
                 <button class="move-btn">☉</button>
                 ${dispenseButton}
+                ${runFromHereButton}
                 <button class="remove-btn">X</button>
             </div>
         `;
@@ -2722,6 +2787,13 @@ export class Job {
             });
         }
 
+        const runFromHereBtn = newDiv.querySelector('.run-from-here-btn');
+        if (runFromHereBtn) {
+            runFromHereBtn.addEventListener('click', () => {
+                this.run(position);
+            });
+        }
+
         // Add click handler for Remove button
         newDiv.querySelector('.remove-btn').addEventListener('click', () => {
             newDiv.remove();
@@ -2760,6 +2832,62 @@ export class Job {
     // generates array of commands to send
     // in format serial.send(commands)
     // Builds the move/dispense/wiggle/retract gcode block for one point.
+    // Resolves a point's effective machine-space X/Y the same way
+    // pointDispenseCommands() does below (calX/calY once fid-cal has run,
+    // else the raw design-space x/y) - shared so orderPointsByNozzleLean()'s
+    // lean-direction projection lines up with where the point actually gets
+    // dispensed, not wherever it sits in the original (possibly rotated)
+    // gerber coordinate space.
+    effectivePointXY(point){
+        return [point.calX ?? point.x, point.calY ?? point.y];
+    }
+
+    // A now more-precisely-calibrated tipXoffset/tipYoffset (see
+    // performTipCalibration()) already corrects every point's dispensed
+    // *position* for however the real nozzle tip leans off the gantry's
+    // nominal centerline - but it can't stop that same lean from letting the
+    // tip physically brush a neighboring pad it already wet paste on as the
+    // gantry travels between one component's own points, which is why this
+    // exists. Given a cluster of points that all belong to the same
+    // component (see slice()'s caller), reorders them to start from
+    // whichever one sits furthest AGAINST the direction the tip leans and
+    // work through the rest in order of increasing lean-direction
+    // projection, ending on whichever point sits furthest in the direction
+    // the tip actually leans - so the tip is always advancing further into
+    // its own lean direction as it goes, instead of ending a component by
+    // reaching back over already-dispensed points to get there.
+    //
+    // The lean direction itself is tipXoffset/tipYoffset MINUS
+    // NOZZLE_PREDICTED_OFFSET_MM, not the raw calibrated offset - that raw
+    // value is dominated by the ~70mm nominal camera-to-nozzle mounting
+    // separation (see NOZZLE_PREDICTED_OFFSET_MM), which points the same
+    // fixed machine-relative direction on every board regardless of which
+    // way any given nozzle is actually bent. Subtracting it out leaves just
+    // the real tip's divergence from that nominal geometry - the part that's
+    // actually a bend, and the direction this whole feature cares about.
+    orderPointsByNozzleLean(points, board){
+        if (points.length < 2) return points;
+
+        // Not calibrated yet (still at createEmptyBoard()'s 0/0 default) -
+        // checked against the raw offset, not the residual below, since a
+        // never-calibrated board would otherwise look like it has a huge
+        // "lean" equal to -NOZZLE_PREDICTED_OFFSET_MM.
+        if (board.tipXoffset === 0 && board.tipYoffset === 0) return points;
+
+        const lx = board.tipXoffset - NOZZLE_PREDICTED_OFFSET_MM.x;
+        const ly = board.tipYoffset - NOZZLE_PREDICTED_OFFSET_MM.y;
+        const mag = Math.hypot(lx, ly);
+        if (mag === 0) return points; // calibrated exactly to the nominal offset - no measurable bend
+
+        const ux = lx / mag, uy = ly / mag;
+        const projection = (point) => {
+            const [x, y] = this.effectivePointXY(point);
+            return x * ux + y * uy;
+        };
+
+        return [...points].sort((a, b) => projection(a) - projection(b));
+    }
+
     // Shared by slice() (the full job) and dispenseSinglePoint() (a manual
     // one-off re-dispense) so they can't drift apart from each other.
     // "{VACUUM}" is substituted with the live air-assist PWM value at send
@@ -2904,6 +3032,51 @@ export class Job {
         return commands;
     }
 
+    // Flat, ordered list of every board's every enabled placement, as this
+    // job would actually paste it - {board, point} pairs rather than
+    // already-generated gcode, so run() can track/resume progress at a
+    // per-point granularity (see runQueue there) instead of a per-gcode-line
+    // one. slice() below turns this same list into gcode; kept as its own
+    // method so run() and slice() can never disagree on point order.
+    //
+    // Every board pastes in one run, not just whichever tab is currently
+    // active in the Job Positions panel - "Run Job" means the whole job.
+    buildRunQueue(){
+        const queue = [];
+
+        for (const board of this.boards) {
+            const enabledPoints = board.placements.filter(point => point.enabled !== false);
+
+            // buildPlacementsFromPadShapes() already emits one component's
+            // points as a consecutive run sharing the same refdes - group by
+            // that (breaking the run at every refdes change, and treating a
+            // null refdes, e.g. a manually captured point, as always its own
+            // singleton group so unrelated manual points never get bundled
+            // together) and hand each group to orderPointsByNozzleLean()
+            // before dispensing it, so within-component order can favor the
+            // nozzle's own lean direction without disturbing the overall
+            // component-to-component traversal order.
+            let i = 0;
+            while (i < enabledPoints.length) {
+                const refdes = enabledPoints[i].refdes;
+                let j = i + 1;
+                if (refdes != null) {
+                    while (j < enabledPoints.length && enabledPoints[j].refdes === refdes) j++;
+                }
+
+                const group = refdes != null
+                    ? this.orderPointsByNozzleLean(enabledPoints.slice(i, j), board)
+                    : [enabledPoints[i]];
+
+                for (const point of group) queue.push({board, point});
+
+                i = j;
+            }
+        }
+
+        return queue;
+    }
+
     slice(){
         const commands = [];
 
@@ -2921,17 +3094,8 @@ export class Job {
             `G0 Z${this.travelHeight}`      // make sure we're clear of the board
         );
 
-        // Every board pastes in one run, not just whichever tab is currently
-        // active in the Job Positions panel - "Run Job" means the whole job.
-        for (const board of this.boards) {
-            for (const point of board.placements) {
-                // Skipped by a component/type group checkbox in the Job
-                // Positions list, so this run only pastes the parts that are
-                // still enabled.
-                if (point.enabled === false) continue;
-
-                commands.push(...this.pointDispenseCommands(point, board));
-            }
+        for (const {board, point} of this.buildRunQueue()) {
+            commands.push(...this.pointDispenseCommands(point, board));
         }
 
         // Returning to the park position is finishRun()'s job, not sliced in
@@ -3051,6 +3215,7 @@ export class Job {
     // the board is always left in the same state instead of each path improvising.
     async finishRun(){
         this.isRunning = false;
+        this.isPaused = false;
         this.toast.receivedInput = false;
         this.toast.hide();
         this.stopRunTimer();
@@ -3091,8 +3256,92 @@ export class Job {
         );
     }
 
-    // slices and executes a job
-    async run(){
+    // Renders the "Running (n/total)... Pause" toast content - a direct
+    // toastContent.innerHTML swap, NOT another toast.show() call. run()
+    // calls toast.show() exactly ONCE per run (see below) to start the
+    // single waitForUserSelection() loop that actually catches the toast's
+    // close button and hides the toast on click - calling show() again
+    // mid-run would start a SECOND, overlapping one racing the first (the
+    // same bug class the Purge Auger toast hit twice before: bypassing
+    // show() entirely breaks the close button because nothing ends up
+    // polling for it at all). Direct innerHTML swaps here are safe because
+    // toast-close lives outside toastContent (see index.html) - it, and the
+    // one show() call's polling loop watching it, are never touched.
+    renderRunningToastContent(){
+        this.toast.toastContent.innerHTML =
+            `Running job (<span id="runProgressText">${this.runProgressIndex}/${this.runQueue.length}</span>)... ` +
+            `<button id="runPauseBtn" class="goldenrod-button" type="button">Pause</button>`;
+        document.getElementById('runPauseBtn')?.addEventListener('click', () => this.pauseRun());
+    }
+
+    // Renders the "Paused (n/total)... Resume" toast content - see
+    // renderRunningToastContent() for why this is a direct innerHTML swap
+    // rather than another toast.show() call.
+    renderPausedToastContent(){
+        this.toast.toastContent.innerHTML =
+            `Paused (<span id="runProgressText">${this.runProgressIndex}/${this.runQueue.length}</span> pasted) - tip parked, pump off, safe to check the board. ` +
+            `<button id="runResumeBtn" class="goldenrod-button" type="button">Resume</button>`;
+        document.getElementById('runResumeBtn')?.addEventListener('click', () => this.resumeRun());
+    }
+
+    // Live-updates the running/paused toast's progress count in place,
+    // without touching anything else in it - cheap enough to call after
+    // every single point instead of re-rendering the whole toast.
+    updateRunningToastProgress(){
+        const el = document.getElementById('runProgressText');
+        if (el) el.textContent = `${this.runProgressIndex}/${this.runQueue.length}`;
+    }
+
+    // Pauses a running job - run()'s own loop only ever checks isPaused
+    // between two points, never mid-point, so the tip is always fully
+    // retracted and idle (never mid-extrude) by the time this takes visible
+    // effect. Lifts to travel height and kills the pump so it's safe to look
+    // at or touch the board - e.g. to check remaining paste or a pad that
+    // looks off - without cancelling the run. resumeRun() picks the very
+    // next point back up exactly where it left off.
+    pauseRun(){
+        if (!this.isRunning || this.isPaused) return;
+        this.isPaused = true;
+        this.renderPausedToastContent();
+    }
+
+    resumeRun(){
+        if (!this.isRunning || !this.isPaused) return;
+        this.isPaused = false;
+        this.renderRunningToastContent();
+    }
+
+    // Shows/hides the Resume Job button and its status line based on
+    // whether the last run stopped partway through (see run()'s own
+    // lastRunStoppedAtPoint) - called whenever that can change.
+    updateRunResumeControls(){
+        const btn = document.getElementById('resumeJob');
+        const info = document.getElementById('jobRunProgress');
+        const stopped = this.lastRunStoppedAtPoint != null;
+        if (btn) btn.hidden = !stopped;
+        if (info) info.textContent = stopped
+            ? `Stopped at pad ${this.lastRunStoppedIndex + 1}/${this.lastRunQueueLength} - Resume Job to continue from there.`
+            : '';
+    }
+
+    // Slices and executes a job, one POINT at a time (not just one gcode
+    // line at a time, like this used to) so a pause or cancel only ever
+    // lands between two points' full dispense sequences - never mid-
+    // sequence, which could leave the tip stopped somewhere physically
+    // ambiguous (mid-extrude, still down, pump still on).
+    //
+    // startAtPoint re-starts from a specific Point instead of the very
+    // first one - used both by the auto-tracked Resume Job button (passing
+    // lastRunStoppedAtPoint) and by each Job Positions row's own "Run from
+    // here" button (passing that row's own point), so a cancelled/failed
+    // run - or just re-testing one board's tail end - doesn't have to
+    // repaste everything already done.
+    async run(startAtPoint = null){
+        if (this.isRunning) {
+            alert('A job is already running - use Pause/the toast\'s close button first.');
+            return;
+        }
+
         const uncalibrated = this.boardsMissingFiducialCalibration();
         if (uncalibrated.length > 0) {
             const names = uncalibrated.map(b => b.name).join(', ');
@@ -3100,48 +3349,103 @@ export class Job {
             return;
         }
 
-        let commands = this.slice()
+        const queue = this.buildRunQueue();
+        if (queue.length === 0) {
+            alert('Nothing to run - every pad is disabled, or the job is empty.');
+            return;
+        }
 
-        this.toast.show("Running job. Close this to cancel.");
+        if (!this.lumen.serial.isConnected()) {
+            alert('Not connected to the machine - connect first.');
+            return;
+        }
 
+        let startIndex = 0;
+        if (startAtPoint) {
+            const idx = queue.findIndex(entry => entry.point === startAtPoint);
+            if (idx === -1) {
+                alert("Can't find that point in the current job anymore (the board may have changed) - starting from the beginning instead.");
+            } else {
+                startIndex = idx;
+            }
+        }
+
+        this.runQueue = queue;
+        this.runProgressIndex = startIndex;
         this.isRunning = true;
+        this.isPaused = false;
+        this.lastRunStoppedAtPoint = null;
+        this.updateRunResumeControls();
         this.startRunTimer();
 
-        for(const command of commands){
+        this.toast.show("Running job. Close this to cancel.");
+        this.renderRunningToastContent();
 
-            console.log(this.toast.receivedInput)
+        await this.lumen.serial.send(["G90", "G92 B0", `G0 Z${this.travelHeight}`]);
 
-            if(this.toast.toastObject.style.display == "none"){
-                await this.finishRun();
-                return;
+        let i = startIndex;
+        for (; i < queue.length; i++){
+
+            // Cancelled via the toast's close button - checked once per
+            // POINT (not once per gcode line, like the old flat-command-
+            // list loop did) so a cancel always lands between two complete
+            // dispense sequences.
+            if (this.toast.toastObject.style.display === "none") {
+                this.isRunning = false;
             }
 
-            // Substitute the current air assist level at send time so the slider
-            // can retune the pump speed live while the job is running. Stored as
-            // a 0-100 percentage; the firmware wants a 0-255 PWM value.
-            const vacuumPwm = Math.round(this.vacuumPressure / 100 * 255);
-            const resolvedCommand = command.replace("{VACUUM}", vacuumPwm).replace("{MOTOR_CURRENT}", this.motorCurrent);
+            if (this.isPaused) {
+                await this.lumen.serial.send([`G0 Z${this.travelHeight} F10000`, "M107 P2"]);
+                while (this.isPaused && this.toast.toastObject.style.display !== "none") {
+                    await this.toast.timeout(150);
+                }
+                if (this.toast.toastObject.style.display === "none") this.isRunning = false;
+            }
 
-            const sendOk = await this.lumen.serial.send([resolvedCommand]);
+            if (!this.isRunning) break;
+
+            const {board, point} = queue[i];
+
+            // Substitute the current air assist level/motor current at send
+            // time so those sliders can retune mid-job. Stored as a 0-100
+            // percentage; the firmware wants a 0-255 PWM value.
+            const vacuumPwm = Math.round(this.vacuumPressure / 100 * 255);
+            const commands = this.pointDispenseCommands(point, board)
+                .map(c => c.replace("{VACUUM}", vacuumPwm).replace("{MOTOR_CURRENT}", this.motorCurrent));
+
+            const sendOk = await this.lumen.serial.send(commands);
 
             // send() returns false (instead of throwing) when the port drops mid-job.
-            // Stop here rather than blasting through the rest of the commands, which
-            // would otherwise fire a "Cannot Write" prompt for every remaining line.
-            // The board is already unreachable, so skip the parking gcode - it would
-            // just fail the same way and spam another round of error modals.
+            // Stop here rather than blasting through the rest, which would otherwise
+            // fire a "Cannot Write" prompt for every remaining line. The board is
+            // already unreachable, so skip the parking gcode - it would just fail the
+            // same way and spam another round of error modals.
             if (!sendOk) {
                 console.warn("Job stopped: lost connection to the board.");
+                this.lastRunStoppedAtPoint = point;
+                this.lastRunStoppedIndex = i;
+                this.lastRunQueueLength = queue.length;
                 this.isRunning = false;
+                this.isPaused = false;
                 this.toast.receivedInput = false;
                 this.toast.hide();
                 this.stopRunTimer();
+                this.updateRunResumeControls();
                 return;
             }
 
+            this.runProgressIndex = i + 1;
+            this.updateRunningToastProgress();
+        }
+
+        if (i < queue.length) {
+            this.lastRunStoppedAtPoint = queue[i].point;
+            this.lastRunStoppedIndex = i;
+            this.lastRunQueueLength = queue.length;
         }
 
         await this.finishRun();
-
+        this.updateRunResumeControls();
     }
 
 
@@ -3198,6 +3502,7 @@ export class Job {
             showMaskPadOverlay: this.showMaskPadOverlay,
             pasteDispenseSettings: getPasteDispenseSettings(),
             dispenseDegrees: this.dispenseDegrees,
+            dispenseMultiplier: this.dispenseMultiplier,
             stencilThicknessMm: this.stencilThicknessMm,
             nozzleGauge: this.nozzleGauge,
             retractionDegrees: this.retractionDegrees,

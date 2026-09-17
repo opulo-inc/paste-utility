@@ -52,7 +52,6 @@
       <button id="importJob" class="goldenrod-button" type="button">Import Job</button>
       <button id="importGerber" class="goldenrod-button" type="button">Import Gerber</button>
       <button id="setupChecklistToggle" type="button" class="goldenrod-button">Setup Checklist</button>
-      <a href="help.html"><button id="helpButton" style="background-color:gray;height:40px;padding:10px;">Docs</button></a>
       <select id="camera-select"></select>
       <button id="connect" type="button">Connect</button>
       <button id="disconnect" type="button">Disconnect</button>
@@ -251,20 +250,20 @@
           <h2>Extruder Settings</h2>
           <div class="settings-row">
             <div class="setting-item">
-              <label for="jobStencilThicknessPreset" title="Which solder stencil thickness this board is equivalent to - pick a preset (or choose Custom and type an exact value in the box) to look up/save that thickness's own remembered calibration below.">Solder Stencil Thickness Equivalent:</label>
+              <label for="jobStencilThicknessPreset" title="Which solder stencil thickness this board is equivalent to - pick a preset, or choose Custom to type an exact value.">Solder Stencil Thickness Equivalent:</label>
               <div class="preset-select-row">
                 <select id="jobStencilThicknessPreset">
                   <option value="0.1">0.10mm</option>
-                  <option value="0.12">0.12mm</option>
+                  <option value="0.12" selected>0.12mm</option>
                   <option value="0.15">0.15mm</option>
-                  <option value="0.2" selected>0.20mm</option>
+                  <option value="0.2">0.20mm</option>
                   <option value="custom">Custom</option>
                 </select>
-                <input type="number" id="jobStencilThicknessMm" min="0.01" max="1" step="0.01" value="0.2" title="Stencil thickness (mm) - matches the preset above, or type an exact custom value here" />
+                <input type="number" id="jobStencilThicknessMm" min="0.01" max="1" step="0.01" value="0.12" title="Stencil thickness (mm) - exact custom value" hidden />
               </div>
             </div>
             <div class="setting-item">
-              <label for="jobNozzleGaugePreset" title="Which dispense nozzle is mounted - a narrower (higher gauge number) nozzle needs more auger rotation for the same paste volume, so this scales the calibration below. The ratio box is a directly-tunable multiplier relative to 22GA (1.0); adjust it as you learn each nozzle's real behavior.">Dispense Nozzle:</label>
+              <label for="jobNozzleGaugePreset" title="Which dispense nozzle is mounted - a narrower (higher gauge number) nozzle needs more auger rotation for the same paste volume, so this scales the suggested dispense degrees below.">Dispense Nozzle:</label>
               <div class="preset-select-row">
                 <select id="jobNozzleGaugePreset">
                   <option value="20">20GA</option>
@@ -272,14 +271,13 @@
                   <option value="23">23GA</option>
                   <option value="25">25GA</option>
                 </select>
-                <input type="number" id="jobNozzleGaugeRatio" min="0.01" step="0.001" value="1" title="Dispense-degrees multiplier for this nozzle, relative to 22GA (1.0) - tune per nozzle/paste combo, saved automatically" />
               </div>
             </div>
           </div>
           <div class="settings-row">
             <div class="setting-item">
-              <label for="jobDispenseDeg" title="Auger rotation (degrees) for a nominal 0402 pad (0.36mm²) at the stencil thickness and nozzle selected above - every other pad size scales its own dispense off this number based on its real pasting-layer pad area. Bump this up/down and re-test to calibrate for a given stencil/paste/tip combo.">0402 Pad Dispense Degrees Calibration:</label>
-              <input type="number" id="jobDispenseDeg" min="1" max="300" value="30" />
+              <label for="jobDispenseMultiplier" title="Multiplier applied on top of the suggested 0402 dispense degrees for the stencil thickness and nozzle selected above - 1.0 uses that suggestion as-is. Bump this up/down and re-test to calibrate for your actual stencil/paste/tip combo.">Dispense Multiplier:</label>
+              <input type="number" id="jobDispenseMultiplier" min="0.01" step="0.01" value="1" />
             </div>
             <div class="setting-item hw-plunger-only">
               <label for="jobRetractionDeg" title="Paste Extruder V1 Beta only - how far the plunger backs off after each dispense to reduce stringing/ooze">Retraction Degrees:</label>
@@ -449,7 +447,7 @@
                 </div>
                 <div class="setting-item">
                   <label for="advStaggerOffsetFraction" title="Stagger spacing: how far (as a fraction of the pad's own half-length) a tight-pitch pad's single dot is nudged off-center, alternating direction pad-to-pad">Stagger Spacing:</label>
-                  <input type="number" id="advStaggerOffsetFraction" min="0" max="1" step="0.05" value="0.85" />
+                  <input type="number" id="advStaggerOffsetFraction" min="0" max="1" step="0.05" value="0.45" />
                 </div>
                 <div class="setting-item">
                   <label for="advTightPitchVolumeMultiplier" title="Extra paste volume multiplier applied only to staggered/tight-pitch pads, independent of the elongated multiplier above">Stagger Paste Multiplier:</label>
@@ -472,8 +470,10 @@
           <div class="button-row">
             <button id="exportJob" class="goldenrod-button">Export Job</button>
             <button id="runJob" class="goldenrod-button">Run Job</button>
+            <button id="resumeJob" class="goldenrod-button" title="Continue the last run from the point it stopped at, instead of pasting every pad again from the start" hidden>Resume Job</button>
           </div>
           <div id="jobRunTime" class="job-run-time"></div>
+          <div id="jobRunProgress" class="job-run-time"></div>
         </div>
         </div>
       </div>

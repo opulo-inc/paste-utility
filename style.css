@@ -528,6 +528,10 @@ label {
   color: #d4a017;
 }
 
+.position-item .run-from-here-btn {
+  color: #4caf50;
+}
+
 .position-item .remove-btn {
   color: #f44336;
 }
