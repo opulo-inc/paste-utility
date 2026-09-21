@@ -935,6 +935,14 @@ async function runPurge(seconds) {
 
   await serial.send(["G90", "M107 P2"]);
 
+  // Same air purge Job.finishRun() does at the end of every job run (finished
+  // or cancelled) - V2 (auger) only, since P3 isn't wired up on the V1 Beta
+  // plunger. Runs whether the purge finished on its own or was stopped early
+  // (both end up here).
+  if (currentJob.hardwareVersion === 'v2') {
+    await serial.send(["M106 P3", "G4 P500", "M107 P3"]);
+  }
+
   // If the loop ended on its own (ran the full duration, or a send failed)
   // rather than via Stop/close, the toast is still showing and its
   // waitForUserSelection() poll is still waiting - resolve it the normal way

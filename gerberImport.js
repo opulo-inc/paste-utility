@@ -207,7 +207,7 @@ export let STAGGER_OFFSET_FRACTION = 0.45
 // dialing volume down (or up) on just that pad population without touching
 // every other pad's dispense math. 1.0 = no change from the normal/elongated
 // volume.
-export let TIGHT_PITCH_VOLUME_MULTIPLIER = 0.2
+export let TIGHT_PITCH_VOLUME_MULTIPLIER = 0.4
 
 // Pads within this Y distance of each other are considered the same "row"
 // when sorting into a deterministic raster (bottom-to-top, left-to-right).
@@ -617,6 +617,102 @@ function padFromTool(x, y, tool, macros) {
     return {x, y, shape: 'unknown', xSize: 0.3, ySize: 0.3, diameter: 0.3, rotationDeg: 0, area: NOMINAL_0402_PAD_AREA_MM2}
 }
 
+// Even-odd point-in-polygon test (standard ray-casting crossing-number
+// count), extended across every contour a region carries at once rather
+// than one contour at a time - a point crosses the combined edge list an
+// odd number of times iff it's inside. That's what makes this correctly
+// handle a region with a hole (a second, inner contour) with no special
+// "which contour is the hole" logic at all: a point inside the outer
+// contour AND inside the inner one crosses two edges (even = outside the
+// filled area), exactly matching the gerber region fill rule.
+function pointInContours(x, y, contours) {
+    let inside = false
+    for (const contour of contours) {
+        const n = contour.length
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            const xi = contour[i].x, yi = contour[i].y
+            const xj = contour[j].x, yj = contour[j].y
+            if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+                inside = !inside
+            }
+        }
+    }
+    return inside
+}
+
+// Shortest distance from (x, y) to any edge of any contour a region carries.
+// Used to hold a region pad's dots the Grid Edge Inset away from its real
+// outline - a rectangle's inset can just shrink its bounding box, but a
+// logo/graphic outline isn't a box, so insetting the bbox alone leaves dots
+// sitting right on the actual edges wherever the outline isn't axis-aligned.
+function distanceToContours(x, y, contours) {
+    let best = Infinity
+    for (const contour of contours) {
+        const n = contour.length
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            const ax = contour[j].x, ay = contour[j].y
+            const bx = contour[i].x, by = contour[i].y
+            const abx = bx - ax, aby = by - ay
+            const lenSq = abx * abx + aby * aby
+            let t = lenSq > 0 ? ((x - ax) * abx + (y - ay) * aby) / lenSq : 0
+            t = Math.max(0, Math.min(1, t))
+            const d = Math.hypot(x - (ax + t * abx), y - (ay + t * aby))
+            if (d < best) best = d
+        }
+    }
+    return best
+}
+
+// Net (shoelace) area across every contour a region carries, signed per
+// contour then summed before the final abs() - a hole contour's gerber
+// winding is the opposite of its enclosing contour's, so this nets it out
+// (enclosing area minus hole area) the same way pointInContours() above
+// treats it as a cutout, rather than double-counting it as more filled area.
+function contoursNetArea(contours) {
+    let net = 0
+    for (const contour of contours) {
+        let sum = 0
+        const n = contour.length
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            sum += (contour[j].x + contour[i].x) * (contour[j].y - contour[i].y)
+        }
+        net += sum / 2
+    }
+    return Math.abs(net)
+}
+
+// Turns one gerber region (a G36...G37 filled-outline block, as opposed to a
+// flash) into a pad-like shape - KiCad emits a paste-layer logo/graphic
+// footprint this way (a handful of filled outlines and no aperture flashes
+// at all), which extractPads()'s flash-only loop would otherwise see
+// nothing from at all. `contours` is one point array per subpath (a region
+// can trace more than one closed outline - see extractPads()); kept on the
+// returned pad so planPadDispense()'s 'grid' branch can clip its dot grid to
+// the real (possibly quite irregular) outline instead of just filling the
+// bounding box rectangle - using the SAME Grid Dot Pitch/Grid Edge Inset
+// Advanced Settings (and per-component overrides) every other grid-pattern
+// pad already respects, so those controls tune a logo's dot density/spacing
+// exactly like they do a QFN thermal pad's. area is the true polygon area
+// (contoursNetArea()), consistent with only the dots that land inside
+// actually counting toward the pad's dispensed volume.
+function padFromRegionContours(contours) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const contour of contours) {
+        for (const p of contour) {
+            minX = Math.min(minX, p.x); minY = Math.min(minY, p.y)
+            maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y)
+        }
+    }
+    const xSize = Math.max(maxX - minX, 0.01)
+    const ySize = Math.max(maxY - minY, 0.01)
+    const area = Math.max(contoursNetArea(contours), 0.001)
+    return {
+        x: (minX + maxX) / 2, y: (minY + maxY) / 2,
+        shape: 'region', xSize, ySize, diameter: null, rotationDeg: 0,
+        area, contours,
+    }
+}
+
 // Extracts the component refdes a %TO.C,<refdes>*% (or its X1-comment
 // equivalent, `G04 #@! TO.C,<refdes>*`) attribute node carries, or 'TD' if
 // the node is the matching attribute-delete that clears it back to null.
@@ -636,7 +732,10 @@ function refdesAttribute(child) {
 // so we get real pad geometry, not just bare center points. Also tracks the
 // %TO.C,<refdes>% component attribute KiCad/Altium/EasyEDA write ahead of a
 // component's flashes (cleared by the matching TD), so each pad can be
-// grouped by the part it belongs to - see groupPadsByComponent().
+// grouped by the part it belongs to - see groupPadsByComponent(). Also picks
+// up G36...G37 regions (see padFromRegionContours()) alongside flashes - a
+// logo/graphic footprint's paste is drawn as filled outlines with no flashes
+// at all, so without this it would contribute nothing here whatsoever.
 function extractPads(tree) {
     let decimalScale = 1000000
     let unitScale = 1
@@ -647,6 +746,13 @@ function extractPads(tree) {
     let activeTool = null
     let activeRefdes = null
     const pads = []
+
+    // Contours of the region currently open (between a G36 and its matching
+    // G37), or null outside of one - one point array per subpath (a move,
+    // D02, partway through starts a new one; a draw, D01, continues
+    // whichever is current). See padFromRegionContours() for why multiple
+    // subpaths matter (hole support).
+    let region = null
 
     for (const child of tree.children) {
         if (child.type === 'units') {
@@ -662,6 +768,15 @@ function extractPads(tree) {
         } else if (child.type === 'comment' || child.type === 'unimplemented') {
             const attr = refdesAttribute(child)
             if (attr) activeRefdes = attr.refdes
+        } else if (child.type === 'regionMode') {
+            if (child.region) {
+                region = {contours: []}
+            } else {
+                if (region && region.contours.some(c => c.length >= 3)) {
+                    pads.push({...padFromRegionContours(region.contours), refdes: activeRefdes})
+                }
+                region = null
+            }
         } else if (child.type === 'graphic') {
             // Gerber coordinates are modal across every graphic op, not just flashes -
             // e.g. Altium commonly writes a separate move (D02) that sets position,
@@ -677,7 +792,15 @@ function extractPads(tree) {
             if (!Number.isNaN(rawX)) lastX = rawX
             if (!Number.isNaN(rawY)) lastY = rawY
 
-            if (child.graphic === 'shape') {
+            if (region && (child.graphic === 'move' || child.graphic === 'segment')) {
+                if (Number.isNaN(resolvedX) || Number.isNaN(resolvedY)) continue
+
+                const x = resolvedX / decimalScale * unitScale
+                const y = resolvedY / decimalScale * unitScale
+
+                if (child.graphic === 'move' || region.contours.length === 0) region.contours.push([])
+                region.contours[region.contours.length - 1].push({x, y})
+            } else if (child.graphic === 'shape') {
                 if (Number.isNaN(resolvedX) || Number.isNaN(resolvedY)) continue
 
                 const x = resolvedX / decimalScale * unitScale
@@ -1039,6 +1162,12 @@ function resolveMechanicsSettings(overrides) {
 }
 
 function classifyPad(pad) {
+    // A region (see padFromRegionContours()) has no real aspect ratio worth
+    // classifying by - it's a possibly quite irregular shape, most often a
+    // logo/graphic footprint. Always grid it (clipped to its real outline,
+    // see planPadDispense()'s 'grid' branch), regardless of size/aspect.
+    if (pad.shape === 'region') return 'grid'
+
     const length = padLength(pad)
     const width = padWidth(pad)
     const aspect = width > 0 ? length / width : 1
@@ -1152,18 +1281,86 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0, overr
         const rows = mechanics.gridDotPitchMm > 0 && usableY >= mechanics.gridDotPitchMm ? Math.round(usableY / mechanics.gridDotPitchMm) + 1 : 1
         const stepX = cols > 1 ? usableX / (cols - 1) : 0
         const stepY = rows > 1 ? usableY / (rows - 1) : 0
-        const dotCount = cols * rows
 
-        points = []
+        let candidates = []
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-                points.push({
+                candidates.push({
                     dx: cols > 1 ? -usableX / 2 + c * stepX : 0,
                     dy: rows > 1 ? -usableY / 2 + r * stepY : 0,
-                    dispenseDegrees: clampDotDegrees(total / dotCount)
                 })
             }
         }
+
+        // A region pad (see padFromRegionContours()) is a real, possibly
+        // quite irregular polygon - not a rectangle - so keep only the
+        // candidate dots that actually land inside its outline, rather than
+        // filling its whole bounding box (which would paste well outside a
+        // non-rectangular logo/graphic's real edges, e.g. its corners).
+        if (pad.shape === 'region' && pad.contours) {
+            const insetMm = mechanics.gridEdgeInsetMm
+            // Keeps only candidates inside the outline AND at least the Grid
+            // Edge Inset from every edge of it (see distanceToContours()) -
+            // otherwise the inset setting only ever moved dots away from the
+            // bounding box, not from the real (irregular) edges.
+            const clip = list => {
+                const insidePts = list.filter(p => pointInContours(pad.x + p.dx, pad.y + p.dy, pad.contours))
+                return {
+                    insidePts,
+                    kept: insidePts.filter(p => distanceToContours(pad.x + p.dx, pad.y + p.dy, pad.contours) >= insetMm),
+                }
+            }
+
+            let {insidePts, kept} = clip(candidates)
+
+            // A coarse Grid Dot Pitch can legitimately miss a thin sliver or
+            // ring/donut-shaped region entirely - every regularly-spaced
+            // candidate can land outside the real material (e.g. in a
+            // ring's hollow middle) or inside the inset margin. Retry at
+            // double the resolution, repeatedly, until something qualifies -
+            // this converges for any shape wide enough to hold an inset dot,
+            // unlike a single fixed fallback point (the pad's own bounding-
+            // box center, which for a ring/donut shape IS the hole).
+            let retryCols = cols, retryRows = rows
+            while (kept.length === 0 && retryCols * retryRows < 20000) {
+                retryCols = Math.max(2, retryCols * 2)
+                retryRows = Math.max(2, retryRows * 2)
+                const retryStepX = retryCols > 1 ? usableX / (retryCols - 1) : 0
+                const retryStepY = retryRows > 1 ? usableY / (retryRows - 1) : 0
+                const retryCandidates = []
+                for (let r = 0; r < retryRows; r++) {
+                    for (let c = 0; c < retryCols; c++) {
+                        retryCandidates.push({
+                            dx: retryCols > 1 ? -usableX / 2 + c * retryStepX : 0,
+                            dy: retryRows > 1 ? -usableY / 2 + r * retryStepY : 0,
+                        })
+                    }
+                }
+                ;({insidePts, kept} = clip(retryCandidates))
+            }
+
+            if (kept.length === 0 && insidePts.length > 0) {
+                // The shape is narrower than twice the inset everywhere -
+                // no dot can honor it. Use the single inside point farthest
+                // from any edge (its most-centered spot) rather than nothing.
+                let bestPt = insidePts[0], bestD = -1
+                for (const p of insidePts) {
+                    const d = distanceToContours(pad.x + p.dx, pad.y + p.dy, pad.contours)
+                    if (d > bestD) { bestD = d; bestPt = p }
+                }
+                kept = [bestPt]
+            }
+
+            // Only reachable for a truly zero-area region (shouldn't exist -
+            // extractPads() already requires >= 3 points per contour).
+            candidates = kept.length > 0 ? kept : [{dx: 0, dy: 0}]
+        }
+
+        const dotCount = candidates.length
+        points = candidates.map(p => ({
+            dx: p.dx, dy: p.dy,
+            dispenseDegrees: clampDotDegrees(total / dotCount)
+        }))
     } else {
         points = [{dx: 0, dy: 0, dispenseDegrees: clampDotDegrees(total)}]
     }

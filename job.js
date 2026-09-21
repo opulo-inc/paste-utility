@@ -330,6 +330,9 @@ export class Job {
         // Which BUILD_PLATES preset the point-viz canvas is currently drawn
         // against - see setBuildPlate()/drawJobToCanvas().
         this.buildPlateId = DEFAULT_BUILD_PLATE;
+        // Newest LumenPnP revision (off-center camera): the no-go zone sits at
+        // the bed's bottom-LEFT instead of bottom-center - see getNoGoZoneRect().
+        this.offCenterCam = false;
 
         // User-applied zoom/pan on top of the auto-fit-to-bed view computed
         // each draw in drawJobToCanvas(). scale is a multiplier on the fit
@@ -756,6 +759,15 @@ export class Job {
             });
         }
 
+        const offCenterCamToggle = document.getElementById('offCenterCamToggle');
+        if (offCenterCamToggle) {
+            offCenterCamToggle.checked = this.offCenterCam;
+            offCenterCamToggle.addEventListener('change', (event) => {
+                this.offCenterCam = event.target.checked;
+                this.drawJobToCanvas();
+            });
+        }
+
         // 2x per click (not the wheel-zoom's much finer per-notch step) so
         // reaching the very top of the now-much-taller maxZoom range - all
         // the way down to a single pad filling the screen - doesn't take
@@ -817,13 +829,13 @@ export class Job {
         this.drawJobToCanvas();
     }
 
-    // The bottom-center keep-out box, in world mm, for whichever plate is
-    // currently selected - same size on every plate, just re-centered if the
-    // (fixed-width) plate ever changed width.
+    // The keep-out box, in world mm, for whichever plate is currently
+    // selected - same size on every plate. Bottom-center normally, or
+    // bottom-left on the newest (off-center camera) LumenPnP revision.
     getNoGoZoneRect(){
         const plate = BUILD_PLATES[this.buildPlateId] || BUILD_PLATES[DEFAULT_BUILD_PLATE];
         return {
-            x: (plate.width - NO_GO_ZONE_MM.width) / 2,
+            x: this.offCenterCam ? 0 : (plate.width - NO_GO_ZONE_MM.width) / 2,
             y: 0,
             width: NO_GO_ZONE_MM.width,
             height: NO_GO_ZONE_MM.height,
@@ -872,11 +884,26 @@ export class Job {
         if (dx === 0 && dy === 0) return;
         for (const p of this.placements) { p.x += dx; p.y += dy; }
         for (const f of this.fiducials) { f.x += dx; f.y += dy; }
-        for (const pad of this.padShapes) { pad.x += dx; pad.y += dy; }
-        for (const pad of this.maskPadShapes) { pad.x += dx; pad.y += dy; }
+        for (const pad of this.padShapes) { this.translatePad(pad, dx, dy); }
+        for (const pad of this.maskPadShapes) { this.translatePad(pad, dx, dy); }
         for (const seg of this.boardOutline) {
             seg.x1 += dx; seg.x2 += dx;
             seg.y1 += dy; seg.y2 += dy;
+        }
+    }
+
+    // Shifts one pad's own center by (dx, dy) - and, for a region pad (see
+    // padFromRegionContours() in gerberImport.js), every vertex of its
+    // traced contours too, or they'd stay behind at the board's pre-shift
+    // position while pad.x/y moved on without them (exactly the coordinate
+    // mismatch a plain `pad.x += dx` alone produced here before: dispense
+    // dots computed as pad.x+dx offsets landed at the board's new position,
+    // but pointInContours() was still testing them against the OLD one).
+    translatePad(pad, dx, dy){
+        pad.x += dx; pad.y += dy;
+        if (!pad.contours) return;
+        for (const contour of pad.contours) {
+            for (const v of contour) { v.x += dx; v.y += dy; }
         }
     }
 
@@ -996,7 +1023,7 @@ export class Job {
             plate.height * scale
         );
 
-        // Draw the bottom-center no-go zone (vacuum bed hardware lives there
+        // Draw the no-go zone (vacuum bed hardware lives there
         // on every plate) as a hatched red box.
         const noGo = this.getNoGoZoneRect();
         const noGoX = toCanvasX(noGo.x);
@@ -1124,7 +1151,27 @@ export class Job {
                     if (totalRotationDeg) ctx.rotate(-totalRotationDeg * Math.PI / 180);
 
                     ctx.beginPath();
-                    if (pad.shape === 'circle' || pad.shape === 'polygon') {
+                    if (pad.shape === 'region' && pad.contours) {
+                        // Traces the real (possibly quite irregular) outline
+                        // a gerber region carries (see padFromRegionContours()
+                        // in gerberImport.js) instead of falling into the
+                        // plain-rectangle case below - each vertex is world-
+                        // space mm relative to the pad's own center, scaled
+                        // to canvas px with Y negated (canvas Y grows
+                        // downward, world Y grows upward - the rect/circle/
+                        // obround shapes below never needed this since
+                        // they're all symmetric about their own center, but
+                        // an asymmetric traced outline draws mirrored without
+                        // it).
+                        for (const contour of pad.contours) {
+                            if (contour.length < 2) continue;
+                            ctx.moveTo((contour[0].x - pad.x) * scale, -(contour[0].y - pad.y) * scale);
+                            for (let i = 1; i < contour.length; i++) {
+                                ctx.lineTo((contour[i].x - pad.x) * scale, -(contour[i].y - pad.y) * scale);
+                            }
+                            ctx.closePath();
+                        }
+                    } else if (pad.shape === 'circle' || pad.shape === 'polygon') {
                         ctx.arc(0, 0, Math.max(w, h) / 2, 0, Math.PI * 2);
                     } else if (pad.shape === 'obround') {
                         drawRoundedRectPath(ctx, -w / 2, -h / 2, w, h, Math.min(w, h) / 2);
@@ -2518,6 +2565,9 @@ export class Job {
             this.buildPlateId = BUILD_PLATES[data.buildPlateId] ? data.buildPlateId : DEFAULT_BUILD_PLATE;
             const buildPlateSelect = document.getElementById('buildPlateSelect');
             if (buildPlateSelect) buildPlateSelect.value = this.buildPlateId;
+            this.offCenterCam = data.offCenterCam === true;
+            const offCenterCamToggle = document.getElementById('offCenterCamToggle');
+            if (offCenterCamToggle) offCenterCamToggle.checked = this.offCenterCam;
 
             // ui update
             const jobDispenseMultiplier = document.getElementById('jobDispenseMultiplier');
@@ -3519,7 +3569,8 @@ export class Job {
             // serializeBoard()) rather than one job-wide value here -
             // importFromFile() still reads a legacy top-level value like
             // this from an older file for backward compat.
-            buildPlateId: this.buildPlateId
+            buildPlateId: this.buildPlateId,
+            offCenterCam: this.offCenterCam
         };
         return JSON.stringify(data, null, 2);
     }

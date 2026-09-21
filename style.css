@@ -2143,3 +2143,14 @@ body.dragging-popup {
   color: #000000;
   background-color: #ffffff;
 }
+.build-plate-controls .off-center-cam-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+.build-plate-controls .off-center-cam-toggle input {
+  margin: 0;
+}
