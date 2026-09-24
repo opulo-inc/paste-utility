@@ -333,6 +333,28 @@ export class Job {
         // Newest LumenPnP revision (off-center camera): the no-go zone sits at
         // the bed's bottom-LEFT instead of bottom-center - see getNoGoZoneRect().
         this.offCenterCam = false;
+        // "Custom" build plate (see getActiveBuildPlate()) - arbitrary max
+        // travel, in mm, for a machine/setup that isn't one of the preset
+        // plates. Read off the machine's own DRO by jogging to its X/Y
+        // travel limits. Defaults match the standard plate's size, purely as
+        // a starting point.
+        this.customBuildPlateWidthMm = 390;
+        this.customBuildPlateHeightMm = 240;
+        // Real machine X/Y this custom plate's own (0,0) - its bottom-left
+        // corner, same convention as PLATE_ORIGIN_MACHINE_MM - actually sits
+        // at, since there's no preset to assume it for. Without this, a
+        // calibrated board would draw at the wrong spot relative to the
+        // custom plate outline: getPlateOriginMachineMm() is what
+        // drawJobToCanvas()'s boardPoint() subtracts to land a fid-cal'd
+        // board in plate-local coords. Defaults to the same origin the
+        // standard/extended plates use, purely as a starting point.
+        this.customBuildPlateOriginXMm = PLATE_ORIGIN_MACHINE_MM.x;
+        this.customBuildPlateOriginYMm = PLATE_ORIGIN_MACHINE_MM.y;
+        // Stored reference value only - not sent to the machine on Home Z
+        // (see the Homed Z Height field's own tooltip). Lets a machine whose
+        // Z homes to a different physical nozzle height than 0 record what
+        // that height actually is, for anyone reading the job's settings.
+        this.homedZHeightMm = 31.5;
 
         // User-applied zoom/pan on top of the auto-fit-to-bed view computed
         // each draw in drawJobToCanvas(). scale is a multiplier on the fit
@@ -752,12 +774,40 @@ export class Job {
         });
 
         const buildPlateSelect = document.getElementById('buildPlateSelect');
+        const customBuildPlateInputs = document.getElementById('customBuildPlateInputs');
+        const customBuildPlateWidthMm = document.getElementById('customBuildPlateWidthMm');
+        const customBuildPlateHeightMm = document.getElementById('customBuildPlateHeightMm');
         if (buildPlateSelect) {
             buildPlateSelect.value = this.buildPlateId;
+            if (customBuildPlateInputs) customBuildPlateInputs.hidden = this.buildPlateId !== 'custom';
             buildPlateSelect.addEventListener('change', (event) => {
                 this.setBuildPlate(event.target.value);
+                if (customBuildPlateInputs) customBuildPlateInputs.hidden = this.buildPlateId !== 'custom';
             });
         }
+        if (customBuildPlateWidthMm) customBuildPlateWidthMm.value = this.customBuildPlateWidthMm;
+        if (customBuildPlateHeightMm) customBuildPlateHeightMm.value = this.customBuildPlateHeightMm;
+        const applyCustomBuildPlateSize = () => {
+            this.setCustomBuildPlateSize(
+                Number(customBuildPlateWidthMm?.value),
+                Number(customBuildPlateHeightMm?.value)
+            );
+        };
+        customBuildPlateWidthMm?.addEventListener('change', applyCustomBuildPlateSize);
+        customBuildPlateHeightMm?.addEventListener('change', applyCustomBuildPlateSize);
+
+        const customBuildPlateOriginXMm = document.getElementById('customBuildPlateOriginXMm');
+        const customBuildPlateOriginYMm = document.getElementById('customBuildPlateOriginYMm');
+        if (customBuildPlateOriginXMm) customBuildPlateOriginXMm.value = this.customBuildPlateOriginXMm;
+        if (customBuildPlateOriginYMm) customBuildPlateOriginYMm.value = this.customBuildPlateOriginYMm;
+        const applyCustomBuildPlateOrigin = () => {
+            this.setCustomBuildPlateOrigin(
+                Number(customBuildPlateOriginXMm?.value),
+                Number(customBuildPlateOriginYMm?.value)
+            );
+        };
+        customBuildPlateOriginXMm?.addEventListener('change', applyCustomBuildPlateOrigin);
+        customBuildPlateOriginYMm?.addEventListener('change', applyCustomBuildPlateOrigin);
 
         const offCenterCamToggle = document.getElementById('offCenterCamToggle');
         if (offCenterCamToggle) {
@@ -765,6 +815,15 @@ export class Job {
             offCenterCamToggle.addEventListener('change', (event) => {
                 this.offCenterCam = event.target.checked;
                 this.drawJobToCanvas();
+            });
+        }
+
+        const jobHomedZHeight = document.getElementById('jobHomedZHeight');
+        if (jobHomedZHeight) {
+            jobHomedZHeight.value = this.homedZHeightMm;
+            jobHomedZHeight.addEventListener('change', (event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value)) this.homedZHeightMm = value;
             });
         }
 
@@ -824,16 +883,65 @@ export class Job {
     // switching plates never moves the board itself, only how much bed is
     // drawn around it.
     setBuildPlate(id){
-        if (!BUILD_PLATES[id] || id === this.buildPlateId) return;
+        if (id !== 'custom' && !BUILD_PLATES[id]) return;
+        if (id === this.buildPlateId) return;
         this.buildPlateId = id;
         this.drawJobToCanvas();
+    }
+
+    // Sets the custom plate's own max-travel dimensions (see
+    // getActiveBuildPlate()) and redraws - a no-op unless 'custom' is
+    // actually the selected plate, same as every other Advanced/Basic
+    // Settings field that only affects the currently-relevant mode.
+    setCustomBuildPlateSize(widthMm, heightMm){
+        if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm) || widthMm <= 0 || heightMm <= 0) return;
+        this.customBuildPlateWidthMm = widthMm;
+        this.customBuildPlateHeightMm = heightMm;
+        if (this.buildPlateId === 'custom') this.drawJobToCanvas();
+    }
+
+    // Sets the custom plate's own real machine-space origin (see
+    // getPlateOriginMachineMm()) and redraws - same no-op-unless-custom
+    // behavior as setCustomBuildPlateSize() above.
+    setCustomBuildPlateOrigin(xMm, yMm){
+        if (!Number.isFinite(xMm) || !Number.isFinite(yMm)) return;
+        this.customBuildPlateOriginXMm = xMm;
+        this.customBuildPlateOriginYMm = yMm;
+        if (this.buildPlateId === 'custom') this.drawJobToCanvas();
+    }
+
+    // The {label, width, height} for whichever plate is currently selected -
+    // one of the fixed BUILD_PLATES presets, or the user's own custom
+    // max-travel size (see setCustomBuildPlateSize()) for a machine/setup
+    // that isn't a preset (e.g. read off its own DRO).
+    getActiveBuildPlate(){
+        if (this.buildPlateId === 'custom') {
+            return { label: 'Custom', width: this.customBuildPlateWidthMm, height: this.customBuildPlateHeightMm };
+        }
+        return BUILD_PLATES[this.buildPlateId] || BUILD_PLATES[DEFAULT_BUILD_PLATE];
+    }
+
+    // Real machine X/Y the active plate's own (0,0) - its bottom-left
+    // corner, as drawn in drawJobToCanvas() - actually sits at. The fixed
+    // PLATE_ORIGIN_MACHINE_MM for the standard/extended presets, or the
+    // user's own typed-in origin (see setCustomBuildPlateOrigin()) for
+    // 'custom', since there's no preset location to assume there.
+    getPlateOriginMachineMm(){
+        if (this.buildPlateId === 'custom') {
+            return { x: this.customBuildPlateOriginXMm, y: this.customBuildPlateOriginYMm };
+        }
+        return PLATE_ORIGIN_MACHINE_MM;
     }
 
     // The keep-out box, in world mm, for whichever plate is currently
     // selected - same size on every plate. Bottom-center normally, or
     // bottom-left on the newest (off-center camera) LumenPnP revision.
+    // Custom has no known vacuum-bed hardware footprint to avoid - treated
+    // as if there's no no-go zone at all (zero-size), same as
+    // centerBoardOnPlate()/drawJobToCanvas() behaved before either existed.
     getNoGoZoneRect(){
-        const plate = BUILD_PLATES[this.buildPlateId] || BUILD_PLATES[DEFAULT_BUILD_PLATE];
+        if (this.buildPlateId === 'custom') return { x: 0, y: 0, width: 0, height: 0 };
+        const plate = this.getActiveBuildPlate();
         return {
             x: this.offCenterCam ? 0 : (plate.width - NO_GO_ZONE_MM.width) / 2,
             y: 0,
@@ -920,7 +1028,7 @@ export class Job {
         const bounds = this.getBoardBounds();
         if (!bounds) return;
 
-        const plate = BUILD_PLATES[this.buildPlateId] || BUILD_PLATES[DEFAULT_BUILD_PLATE];
+        const plate = this.getActiveBuildPlate();
         const noGo = this.getNoGoZoneRect();
         const tileMargin = 10;
 
@@ -970,7 +1078,7 @@ export class Job {
 
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-        const plate = BUILD_PLATES[this.buildPlateId] || BUILD_PLATES[DEFAULT_BUILD_PLATE];
+        const plate = this.getActiveBuildPlate();
 
         // Fit the whole build plate into the canvas - not just whatever board
         // happens to be loaded - so the canvas is always a to-scale top-down
@@ -1013,7 +1121,9 @@ export class Job {
         const toCanvasX = (x) => (x + xShift) * scale + panX;
         const toCanvasY = (y) => (y + yShift) * scale + panY;
 
-        // Draw the bed outline.
+        // Draw the bed outline - scales with whatever plate.width/height
+        // the active plate (preset or custom) actually has, so a custom
+        // plate's outline resizes right along with its X/Y size inputs.
         ctx.strokeStyle = "#444";
         ctx.lineWidth = 1.5;
         ctx.strokeRect(
@@ -1023,30 +1133,34 @@ export class Job {
             plate.height * scale
         );
 
-        // Draw the no-go zone (vacuum bed hardware lives there
-        // on every plate) as a hatched red box.
-        const noGo = this.getNoGoZoneRect();
-        const noGoX = toCanvasX(noGo.x);
-        const noGoYTop = canvasHeight - toCanvasY(noGo.y + noGo.height);
-        const noGoW = noGo.width * scale;
-        const noGoH = noGo.height * scale;
+        // Draw the no-go zone (vacuum bed hardware lives there on every
+        // preset plate) as a hatched red box - skipped for 'custom', which
+        // has no known real hardware footprint to draw one for (see
+        // getNoGoZoneRect()'s own zero-size return for it).
+        if (this.buildPlateId !== 'custom') {
+            const noGo = this.getNoGoZoneRect();
+            const noGoX = toCanvasX(noGo.x);
+            const noGoYTop = canvasHeight - toCanvasY(noGo.y + noGo.height);
+            const noGoW = noGo.width * scale;
+            const noGoH = noGo.height * scale;
 
-        ctx.save();
-        ctx.fillStyle = "rgba(220, 50, 50, 0.15)";
-        ctx.fillRect(noGoX, noGoYTop, noGoW, noGoH);
-        ctx.strokeStyle = "rgba(200, 30, 30, 0.8)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 3]);
-        ctx.strokeRect(noGoX, noGoYTop, noGoW, noGoH);
-        ctx.setLineDash([]);
-        if (noGoW > 60 && noGoH > 16) {
-            ctx.fillStyle = "rgba(150, 20, 20, 0.9)";
-            ctx.font = "11px Figtree, sans-serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText("No-Go Zone", noGoX + noGoW / 2, noGoYTop + noGoH / 2);
+            ctx.save();
+            ctx.fillStyle = "rgba(220, 50, 50, 0.15)";
+            ctx.fillRect(noGoX, noGoYTop, noGoW, noGoH);
+            ctx.strokeStyle = "rgba(200, 30, 30, 0.8)";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 3]);
+            ctx.strokeRect(noGoX, noGoYTop, noGoW, noGoH);
+            ctx.setLineDash([]);
+            if (noGoW > 60 && noGoH > 16) {
+                ctx.fillStyle = "rgba(150, 20, 20, 0.9)";
+                ctx.font = "11px Figtree, sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText("No-Go Zone", noGoX + noGoW / 2, noGoYTop + noGoH / 2);
+            }
+            ctx.restore();
         }
-        ctx.restore();
 
         const anyBoardHasContent = this.boards.some(board =>
             board.placements.length > 0 || board.fiducials.length > 0 || (board.boardOutline && board.boardOutline.length > 0)
@@ -1080,10 +1194,11 @@ export class Job {
             // not just their center points.
             const calMatrix = board.fidCalMatrix;
             const calRotationDeg = calMatrix ? Math.atan2(calMatrix.b, calMatrix.a) * 180 / Math.PI : 0;
+            const plateOrigin = this.getPlateOriginMachineMm();
             const boardPoint = calMatrix
                 ? (x, y) => {
                     const [mx, my] = applyToPoint(calMatrix, [x, y]);
-                    return [mx - PLATE_ORIGIN_MACHINE_MM.x, my - PLATE_ORIGIN_MACHINE_MM.y];
+                    return [mx - plateOrigin.x, my - plateOrigin.y];
                 }
                 : (x, y) => [x + dragX, y + dragY];
 
@@ -1465,6 +1580,13 @@ export class Job {
                     point.componentType = group.type;
                     point.dispensePattern = pattern;
                     point.padAreaMm2 = padAreaMm2 ?? null;
+                    // See flagPadsContainedByLargerPad() in gerberImport.js -
+                    // this pad's whole footprint sits inside a bigger pad's
+                    // own, so whatever that bigger pad's own pattern already
+                    // dispenses there covers it too. Starts disabled (not
+                    // dropped) so it's still visible - and re-enable-able -
+                    // in the Job Positions list if that guess is wrong here.
+                    if (pad.containedByLargerPad) point.enabled = false;
                     placements.push(point);
                 }
             }
@@ -2562,9 +2684,26 @@ export class Job {
             this.preGcode = data.preGcode || "";
             this.postGcode = data.postGcode || "";
             this.invertDispense = data.invertDispense || false;
-            this.buildPlateId = BUILD_PLATES[data.buildPlateId] ? data.buildPlateId : DEFAULT_BUILD_PLATE;
+            this.buildPlateId = (BUILD_PLATES[data.buildPlateId] || data.buildPlateId === 'custom') ? data.buildPlateId : DEFAULT_BUILD_PLATE;
+            this.customBuildPlateWidthMm = typeof data.customBuildPlateWidthMm !== 'undefined' ? data.customBuildPlateWidthMm : 390;
+            this.customBuildPlateHeightMm = typeof data.customBuildPlateHeightMm !== 'undefined' ? data.customBuildPlateHeightMm : 240;
+            this.customBuildPlateOriginXMm = typeof data.customBuildPlateOriginXMm !== 'undefined' ? data.customBuildPlateOriginXMm : PLATE_ORIGIN_MACHINE_MM.x;
+            this.customBuildPlateOriginYMm = typeof data.customBuildPlateOriginYMm !== 'undefined' ? data.customBuildPlateOriginYMm : PLATE_ORIGIN_MACHINE_MM.y;
+            this.homedZHeightMm = typeof data.homedZHeightMm !== 'undefined' ? data.homedZHeightMm : 31.5;
             const buildPlateSelect = document.getElementById('buildPlateSelect');
             if (buildPlateSelect) buildPlateSelect.value = this.buildPlateId;
+            const customBuildPlateInputs = document.getElementById('customBuildPlateInputs');
+            if (customBuildPlateInputs) customBuildPlateInputs.hidden = this.buildPlateId !== 'custom';
+            const customBuildPlateWidthMm = document.getElementById('customBuildPlateWidthMm');
+            if (customBuildPlateWidthMm) customBuildPlateWidthMm.value = this.customBuildPlateWidthMm;
+            const customBuildPlateHeightMm = document.getElementById('customBuildPlateHeightMm');
+            if (customBuildPlateHeightMm) customBuildPlateHeightMm.value = this.customBuildPlateHeightMm;
+            const customBuildPlateOriginXMm = document.getElementById('customBuildPlateOriginXMm');
+            if (customBuildPlateOriginXMm) customBuildPlateOriginXMm.value = this.customBuildPlateOriginXMm;
+            const customBuildPlateOriginYMm = document.getElementById('customBuildPlateOriginYMm');
+            if (customBuildPlateOriginYMm) customBuildPlateOriginYMm.value = this.customBuildPlateOriginYMm;
+            const jobHomedZHeight = document.getElementById('jobHomedZHeight');
+            if (jobHomedZHeight) jobHomedZHeight.value = this.homedZHeightMm;
             this.offCenterCam = data.offCenterCam === true;
             const offCenterCamToggle = document.getElementById('offCenterCamToggle');
             if (offCenterCamToggle) offCenterCamToggle.checked = this.offCenterCam;
@@ -3570,6 +3709,11 @@ export class Job {
             // importFromFile() still reads a legacy top-level value like
             // this from an older file for backward compat.
             buildPlateId: this.buildPlateId,
+            customBuildPlateWidthMm: this.customBuildPlateWidthMm,
+            customBuildPlateHeightMm: this.customBuildPlateHeightMm,
+            customBuildPlateOriginXMm: this.customBuildPlateOriginXMm,
+            customBuildPlateOriginYMm: this.customBuildPlateOriginYMm,
+            homedZHeightMm: this.homedZHeightMm,
             offCenterCam: this.offCenterCam
         };
         return JSON.stringify(data, null, 2);

@@ -681,6 +681,47 @@ function contoursNetArea(contours) {
     return Math.abs(net)
 }
 
+// Shortest signed distance from a pad-relative offset (dx, dy) to the pad's
+// own TRUE edge - positive means inside, by that many mm (0 = right on the
+// edge). Covers the shapes whose bounding box ISN'T already their exact
+// outline (circle/polygon-aperture, obround, and a gerber region's traced
+// contours) - a plain rectangle's bounding box already IS its shape, so the
+// 'grid' pattern below never needs this for one. Shared by the inside-test
+// and the Grid Edge Inset test, so a grid pad's dots respect this pad's
+// *real* silhouette instead of just its rectangular bounding box - without
+// this, a round (or obround, or logo/graphic-region) pad big enough to grid
+// still got a plain rectangular grid, spilling dots into its own corners
+// that aren't real pad material at all.
+function distanceInsidePadShape(pad, dx, dy) {
+    if (pad.shape === 'region' && pad.contours) {
+        return pointInContours(pad.x + dx, pad.y + dy, pad.contours)
+            ? distanceToContours(pad.x + dx, pad.y + dy, pad.contours)
+            : -distanceToContours(pad.x + dx, pad.y + dy, pad.contours)
+    }
+
+    if (pad.shape === 'circle' || pad.shape === 'polygon') {
+        const r = (pad.diameter ?? Math.min(pad.xSize, pad.ySize)) / 2
+        return r - Math.hypot(dx, dy)
+    }
+
+    if (pad.shape === 'obround') {
+        // Stadium shape: a rectangle with semicircular caps. Clamp the
+        // offset onto the shape's straight "spine" (the long axis's own
+        // centerline, between the two cap centers) first, then it's a plain
+        // circle-edge distance from that clamped point with the short
+        // axis's own radius.
+        const halfW = pad.xSize / 2, halfH = pad.ySize / 2
+        const r = Math.min(halfW, halfH)
+        const spineHalfLen = Math.max(halfW, halfH) - r
+        const alongX = pad.xSize >= pad.ySize
+        const cx = alongX ? Math.max(-spineHalfLen, Math.min(spineHalfLen, dx)) : 0
+        const cy = alongX ? 0 : Math.max(-spineHalfLen, Math.min(spineHalfLen, dy))
+        return r - Math.hypot(dx - cx, dy - cy)
+    }
+
+    return Infinity // rectangle/unknown - the bounding box already IS the shape
+}
+
 // Turns one gerber region (a G36...G37 filled-outline block, as opposed to a
 // flash) into a pad-like shape - KiCad emits a paste-layer logo/graphic
 // footprint this way (a handful of filled outlines and no aperture flashes
@@ -1034,6 +1075,68 @@ export function findFiducialCandidates(maskOnlyPoints, drillHoles) {
     return excludeRepeatingArrayPoints(plausiblyShaped)
 }
 
+// World-space axis-aligned bounding box for a pad, used only by
+// flagPadsContainedByLargerPad() below - not exact for a shape rotated to
+// some odd angle (it's the AABB of the rotated rectangle's 4 corners, not
+// the rotated rectangle itself), but exactly right for the overwhelmingly
+// common case of an unrotated or 0/90/180/270-rotated SMD pad, and a region
+// pad's own contours already give an exact one.
+function padAABB(pad) {
+    if (pad.shape === 'region' && pad.contours) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        for (const contour of pad.contours) {
+            for (const p of contour) {
+                minX = Math.min(minX, p.x); minY = Math.min(minY, p.y)
+                maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y)
+            }
+        }
+        return {minX, minY, maxX, maxY}
+    }
+
+    const hw = pad.xSize / 2, hh = pad.ySize / 2
+    if (!pad.rotationDeg) {
+        return {minX: pad.x - hw, maxX: pad.x + hw, minY: pad.y - hh, maxY: pad.y + hh}
+    }
+
+    const rad = pad.rotationDeg * Math.PI / 180, cos = Math.cos(rad), sin = Math.sin(rad)
+    const corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]]
+        .map(([x, y]) => [pad.x + x * cos - y * sin, pad.y + x * sin + y * cos])
+    return {
+        minX: Math.min(...corners.map(c => c[0])), maxX: Math.max(...corners.map(c => c[0])),
+        minY: Math.min(...corners.map(c => c[1])), maxY: Math.max(...corners.map(c => c[1])),
+    }
+}
+
+// Flags (rather than drops) any pad whose own footprint sits entirely inside
+// a bigger pad's footprint - e.g. a small reinforcement/reference pad added
+// right on top of a component's own much larger mounting pad (seen on a real
+// board: four 1x1mm "REF**" pads, each fully inside one of a battery
+// holder's two big rectangular tabs). Dispensing both independently
+// double-deposits paste on the same physical spot; the bigger pad's own
+// pattern already covers it. Flagged rather than excluded outright so
+// buildPlacementsFromPadShapes() (job.js) can start its resulting point(s)
+// disabled instead of just gone - visible and re-enable-able in the Job
+// Positions list if this guess is wrong for a given board, the same way any
+// other pad can be toggled.
+//
+// Compares AABBs (see padAABB() above) pairwise - O(n^2), fine for a
+// realistic board's pad count. "Bigger" is by area, strictly greater, so two
+// equal-size overlapping pads don't both end up flagging each other.
+function flagPadsContainedByLargerPad(pads) {
+    const boxes = pads.map(padAABB)
+    const areaOf = (b) => (b.maxX - b.minX) * (b.maxY - b.minY)
+    const margin = 0.01 // mm - avoids flip-flopping on pure floating-point boundary noise
+
+    for (let i = 0; i < pads.length; i++) {
+        const a = boxes[i]
+        pads[i].containedByLargerPad = boxes.some((b, j) =>
+            j !== i && areaOf(b) > areaOf(a) &&
+            a.minX >= b.minX - margin && a.maxX <= b.maxX + margin &&
+            a.minY >= b.minY - margin && a.maxY <= b.maxY + margin
+        )
+    }
+}
+
 // Reads the selected file(s), classifies each one, and returns the paste pad
 // geometry, raw mask flash points (used to spot fiducial candidates), and the
 // board outline (if an Edge_Cuts/Profile layer was included).
@@ -1116,6 +1219,8 @@ export async function importGerberSet(fileList) {
             'Make sure the solder paste gerber (e.g. *-F_Paste.gbr / *.GTP) is included.'
         )
     }
+
+    flagPadsContainedByLargerPad(pastePads)
 
     if (!maskFlashes) {
         warnings.push('No solder mask layer detected - skipping automatic fiducial candidate detection.')
@@ -1292,22 +1397,27 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0, overr
             }
         }
 
-        // A region pad (see padFromRegionContours()) is a real, possibly
-        // quite irregular polygon - not a rectangle - so keep only the
-        // candidate dots that actually land inside its outline, rather than
-        // filling its whole bounding box (which would paste well outside a
-        // non-rectangular logo/graphic's real edges, e.g. its corners).
-        if (pad.shape === 'region' && pad.contours) {
+        // A circle, obround, or region pad (see padFromRegionContours()) is
+        // NOT its own bounding box - a round pad big enough to classify as
+        // 'grid' still needs a circular grid, not the square one its
+        // bounding box would naively suggest (same for an obround's rounded
+        // ends, or a region's possibly quite irregular traced outline).
+        // Keep only the candidates that actually land inside the pad's real
+        // shape, rather than filling its whole bounding box - which would
+        // paste well outside the real pad for any of these three shapes,
+        // e.g. a round pad's own corners.
+        if (pad.shape === 'region' || pad.shape === 'circle' || pad.shape === 'polygon' || pad.shape === 'obround') {
             const insetMm = mechanics.gridEdgeInsetMm
-            // Keeps only candidates inside the outline AND at least the Grid
-            // Edge Inset from every edge of it (see distanceToContours()) -
-            // otherwise the inset setting only ever moved dots away from the
-            // bounding box, not from the real (irregular) edges.
+            // Keeps only candidates inside the real shape AND at least the
+            // Grid Edge Inset from its actual edge (see
+            // distanceInsidePadShape()) - otherwise the inset setting only
+            // ever moved dots away from the bounding box, not the pad's real
+            // (round/obround/irregular) edge.
             const clip = list => {
-                const insidePts = list.filter(p => pointInContours(pad.x + p.dx, pad.y + p.dy, pad.contours))
+                const insidePts = list.filter(p => distanceInsidePadShape(pad, p.dx, p.dy) >= 0)
                 return {
                     insidePts,
-                    kept: insidePts.filter(p => distanceToContours(pad.x + p.dx, pad.y + p.dy, pad.contours) >= insetMm),
+                    kept: insidePts.filter(p => distanceInsidePadShape(pad, p.dx, p.dy) >= insetMm),
                 }
             }
 
@@ -1345,14 +1455,13 @@ export function planPadDispense(pad, baseDispenseDegrees, staggerSign = 0, overr
                 // from any edge (its most-centered spot) rather than nothing.
                 let bestPt = insidePts[0], bestD = -1
                 for (const p of insidePts) {
-                    const d = distanceToContours(pad.x + p.dx, pad.y + p.dy, pad.contours)
+                    const d = distanceInsidePadShape(pad, p.dx, p.dy)
                     if (d > bestD) { bestD = d; bestPt = p }
                 }
                 kept = [bestPt]
             }
 
-            // Only reachable for a truly zero-area region (shouldn't exist -
-            // extractPads() already requires >= 3 points per contour).
+            // Only reachable for a truly zero-area pad (shouldn't exist).
             candidates = kept.length > 0 ? kept : [{dx: 0, dy: 0}]
         }
 

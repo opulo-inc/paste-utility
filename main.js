@@ -736,6 +736,28 @@ document.getElementById("send").addEventListener("click", () => {
 
 // jog pendant event listeners
 
+// The default LumenPnP's actual X-axis travel limit (a software soft limit
+// on how far a jog can push the gantry) - distinct from BUILD_PLATES'
+// smaller paste-able/no-go-zone-aware extents in job.js, which are about
+// where boards can be drawn/pasted, not the gantry's own hard stops.
+// Jogging past this would just grind the X axis into its own limit.
+const MAX_TRAVEL_X_MM = 400;
+
+// Shrinks a relative jog delta (± dist) so current + delta lands within
+// [minMm, maxMm], using the last-polled machine position (see
+// setupMachinePositionPoll()) as "current" - or returns delta unchanged if
+// that position isn't known yet (nothing to clamp against, so send as
+// asked rather than silently refusing to jog at all).
+function clampJogDelta(posElementId, delta, maxMm, minMm = 0){
+  const posEl = document.getElementById(posElementId);
+  const current = parseFloat(posEl?.textContent);
+  if (!Number.isFinite(current)) return delta;
+  const target = current + delta;
+  if (target > maxMm) return maxMm - current;
+  if (target < minMm) return minMm - current;
+  return delta;
+}
+
 function getJogDistance(){
   let distLUT = document.getElementById("jog-distance").value;
   if(distLUT == "1"){
@@ -767,12 +789,16 @@ document.getElementById("jog-ym").addEventListener("click", () => {
 
 document.getElementById("jog-xp").addEventListener("click", () => {
   let dist = getJogDistance();
-  serial.send(["G91", `G0 X${dist} F${currentJob.motionSpeed}`, "G90"]);
+  const clamped = clampJogDelta('machinePosX', dist, MAX_TRAVEL_X_MM);
+  if (Math.abs(clamped) < 0.0001) return; // already at/past the limit - nothing to send
+  serial.send(["G91", `G0 X${clamped} F${currentJob.motionSpeed}`, "G90"]);
 });
 
 document.getElementById("jog-xm").addEventListener("click", () => {
   let dist = getJogDistance();
-  serial.send(["G91", `G0 X-${dist} F${currentJob.motionSpeed}`, "G90"]);
+  const clamped = clampJogDelta('machinePosX', -dist, MAX_TRAVEL_X_MM);
+  if (Math.abs(clamped) < 0.0001) return;
+  serial.send(["G91", `G0 X${clamped} F${currentJob.motionSpeed}`, "G90"]);
 });
 
 document.getElementById("jog-zp").addEventListener("click", () => {

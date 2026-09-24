@@ -218,7 +218,18 @@
               <select id="buildPlateSelect">
                 <option value="standard" selected>Standard (390 x 240mm)</option>
                 <option value="extended">Extended (390 x 330mm)</option>
+                <option value="custom">Custom</option>
               </select>
+              <span id="customBuildPlateInputs" class="custom-build-plate-inputs" hidden>
+                <span title="Max X/Y travel (mm) for this machine - jog to each axis' limit and read the values off the machine's own DRO">
+                  <label>Size X: <input type="number" id="customBuildPlateWidthMm" min="1" step="1" value="390" /></label>
+                  <label>Y: <input type="number" id="customBuildPlateHeightMm" min="1" step="1" value="240" /></label>
+                </span>
+                <span title="Real machine X/Y the plate's own bottom-left corner sits at - needed so a calibrated board draws in the right place relative to this custom plate's outline">
+                  <label>Origin X: <input type="number" id="customBuildPlateOriginXMm" step="0.1" value="7" /></label>
+                  <label>Y: <input type="number" id="customBuildPlateOriginYMm" step="0.1" value="95.5" /></label>
+                </span>
+              </span>
               <label class="off-center-cam-toggle" for="offCenterCamToggle" title="Newest LumenPnP revision (off-center camera): the no-go zone sits at the bottom-left of the bed instead of the bottom-center">
                 <input type="checkbox" id="offCenterCamToggle" /> Off-center cam Lumen
               </label>
@@ -333,6 +344,10 @@
               <div class="setting-item">
                 <label for="jobTravelHeight" title="Z height the nozzle rests at while moving between pads during a run">Travel Height (mm):</label>
                 <input type="number" id="jobTravelHeight" min="0" max="50" step="0.1" value="31.5" />
+              </div>
+              <div class="setting-item">
+                <label for="jobHomedZHeight" title="Reference value only - not sent to the machine on Home Z. Record what physical Z height this machine's nozzle actually homes to, if it differs from the usual one.">Homed Z Height (mm):</label>
+                <input type="number" id="jobHomedZHeight" step="0.1" value="31.5" />
               </div>
             </div>
             <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">

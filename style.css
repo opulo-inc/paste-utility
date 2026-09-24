@@ -2098,10 +2098,18 @@ body.dragging-popup {
   position: absolute;
   top: 8px;
   left: 8px;
+  /* Stops short of .gerber-visualization-controls' right-anchored zoom/
+     Paste/Mask buttons (roughly 140px wide) - without this, the extra
+     off-center-cam toggle and (on Custom) the X/Y size inputs made this row
+     wide enough to run underneath those buttons and become unclickable,
+     rather than wrapping to a second line the way flex-wrap below intends. */
+  max-width: calc(100% - 160px);
   z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  row-gap: 4px;
   background-color: rgba(255, 255, 255, 0.85);
   padding: 4px 8px;
   border-radius: 6px;
@@ -2147,10 +2155,48 @@ body.dragging-popup {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: 8px;
   cursor: pointer;
 }
 
 .build-plate-controls .off-center-cam-toggle input {
   margin: 0;
+}
+
+.custom-build-plate-inputs {
+  /* :not([hidden]), not a plain display:flex - an author stylesheet rule of
+     equal-or-higher specificity always beats the UA stylesheet's own
+     [hidden]{display:none}, regardless of source order, so a bare
+     `display: flex` here would keep this visible even while its `hidden`
+     attribute is set (exactly what happened before this fix: it showed on
+     page load with the Standard plate selected, before Custom was ever
+     picked). */
+  display: none;
+}
+
+.custom-build-plate-inputs:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  row-gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.custom-build-plate-inputs > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-build-plate-inputs label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.custom-build-plate-inputs input {
+  width: 65px;
+  padding: 3px 6px;
+  font-size: 0.8rem;
 }
