@@ -1181,7 +1181,7 @@ export class Job {
             ctx.setLineDash([]);
             if (noGoW > 60 && noGoH > 16) {
                 ctx.fillStyle = "rgba(150, 20, 20, 0.9)";
-                ctx.font = "11px Figtree, sans-serif";
+                ctx.font = "11px Nunito, sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillText("No-Go Zone", noGoX + noGoW / 2, noGoYTop + noGoH / 2);
