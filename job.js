@@ -350,11 +350,20 @@ export class Job {
         // standard/extended plates use, purely as a starting point.
         this.customBuildPlateOriginXMm = PLATE_ORIGIN_MACHINE_MM.x;
         this.customBuildPlateOriginYMm = PLATE_ORIGIN_MACHINE_MM.y;
-        // Stored reference value only - not sent to the machine on Home Z
-        // (see the Homed Z Height field's own tooltip). Lets a machine whose
-        // Z homes to a different physical nozzle height than 0 record what
-        // that height actually is, for anyone reading the job's settings.
+        // Z height the nozzle moves to right after Home Z finishes homing
+        // (see main.js's "home-z" click handler) - a raw Z endstop position
+        // alone is often close to the top of travel, not a useful working
+        // height to actually leave the head sitting at.
         this.homedZHeightMm = 31.5;
+
+        // Software soft limits on how far an X/Y jog can push the gantry
+        // (see clampJogDelta() in main.js) - distinct from the build plate's
+        // smaller paste-able/no-go-zone-aware extents above, which are about
+        // where boards can be drawn/pasted, not the gantry's own physical
+        // travel. Jogging past these would just grind the axis into its own
+        // hard stop; defaults are the standard machine's own real limits.
+        this.maxTravelXMm = 400;
+        this.maxTravelYMm = 330;
 
         // User-applied zoom/pan on top of the auto-fit-to-bed view computed
         // each draw in drawJobToCanvas(). scale is a multiplier on the fit
@@ -824,6 +833,24 @@ export class Job {
             jobHomedZHeight.addEventListener('change', (event) => {
                 const value = Number(event.target.value);
                 if (Number.isFinite(value)) this.homedZHeightMm = value;
+            });
+        }
+
+        const jobMaxTravelX = document.getElementById('jobMaxTravelX');
+        if (jobMaxTravelX) {
+            jobMaxTravelX.value = this.maxTravelXMm;
+            jobMaxTravelX.addEventListener('change', (event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value) && value > 0) this.maxTravelXMm = value;
+            });
+        }
+
+        const jobMaxTravelY = document.getElementById('jobMaxTravelY');
+        if (jobMaxTravelY) {
+            jobMaxTravelY.value = this.maxTravelYMm;
+            jobMaxTravelY.addEventListener('change', (event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value) && value > 0) this.maxTravelYMm = value;
             });
         }
 
@@ -2690,6 +2717,8 @@ export class Job {
             this.customBuildPlateOriginXMm = typeof data.customBuildPlateOriginXMm !== 'undefined' ? data.customBuildPlateOriginXMm : PLATE_ORIGIN_MACHINE_MM.x;
             this.customBuildPlateOriginYMm = typeof data.customBuildPlateOriginYMm !== 'undefined' ? data.customBuildPlateOriginYMm : PLATE_ORIGIN_MACHINE_MM.y;
             this.homedZHeightMm = typeof data.homedZHeightMm !== 'undefined' ? data.homedZHeightMm : 31.5;
+            this.maxTravelXMm = typeof data.maxTravelXMm !== 'undefined' ? data.maxTravelXMm : 400;
+            this.maxTravelYMm = typeof data.maxTravelYMm !== 'undefined' ? data.maxTravelYMm : 330;
             const buildPlateSelect = document.getElementById('buildPlateSelect');
             if (buildPlateSelect) buildPlateSelect.value = this.buildPlateId;
             const customBuildPlateInputs = document.getElementById('customBuildPlateInputs');
@@ -2704,6 +2733,10 @@ export class Job {
             if (customBuildPlateOriginYMm) customBuildPlateOriginYMm.value = this.customBuildPlateOriginYMm;
             const jobHomedZHeight = document.getElementById('jobHomedZHeight');
             if (jobHomedZHeight) jobHomedZHeight.value = this.homedZHeightMm;
+            const jobMaxTravelX = document.getElementById('jobMaxTravelX');
+            if (jobMaxTravelX) jobMaxTravelX.value = this.maxTravelXMm;
+            const jobMaxTravelY = document.getElementById('jobMaxTravelY');
+            if (jobMaxTravelY) jobMaxTravelY.value = this.maxTravelYMm;
             this.offCenterCam = data.offCenterCam === true;
             const offCenterCamToggle = document.getElementById('offCenterCamToggle');
             if (offCenterCamToggle) offCenterCamToggle.checked = this.offCenterCam;
@@ -3714,6 +3747,8 @@ export class Job {
             customBuildPlateOriginXMm: this.customBuildPlateOriginXMm,
             customBuildPlateOriginYMm: this.customBuildPlateOriginYMm,
             homedZHeightMm: this.homedZHeightMm,
+            maxTravelXMm: this.maxTravelXMm,
+            maxTravelYMm: this.maxTravelYMm,
             offCenterCam: this.offCenterCam
         };
         return JSON.stringify(data, null, 2);

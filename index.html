@@ -345,9 +345,19 @@
                 <label for="jobTravelHeight" title="Z height the nozzle rests at while moving between pads during a run">Travel Height (mm):</label>
                 <input type="number" id="jobTravelHeight" min="0" max="50" step="0.1" value="31.5" />
               </div>
-              <div class="setting-item">
-                <label for="jobHomedZHeight" title="Reference value only - not sent to the machine on Home Z. Record what physical Z height this machine's nozzle actually homes to, if it differs from the usual one.">Homed Z Height (mm):</label>
+              <div class="setting-item" data-tooltip="Z height the nozzle moves to right after Home Z finishes homing.
+Bigger number = nozzle ends up LOWER, closer to the bed.
+Smaller number = nozzle ends up HIGHER, farther from the bed.">
+                <label for="jobHomedZHeight">Homed Z Height (mm):</label>
                 <input type="number" id="jobHomedZHeight" step="0.1" value="31.5" />
+              </div>
+              <div class="setting-item">
+                <label for="jobMaxTravelX" title="Software soft limit on how far an X jog can push the gantry - jogging past this would just grind the axis into its own physical hard stop.">Max Travel X (mm):</label>
+                <input type="number" id="jobMaxTravelX" min="1" step="1" value="400" />
+              </div>
+              <div class="setting-item">
+                <label for="jobMaxTravelY" title="Software soft limit on how far a Y jog can push the gantry - jogging past this would just grind the axis into its own physical hard stop.">Max Travel Y (mm):</label>
+                <input type="number" id="jobMaxTravelY" min="1" step="1" value="330" />
               </div>
             </div>
             <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">

@@ -736,13 +736,6 @@ document.getElementById("send").addEventListener("click", () => {
 
 // jog pendant event listeners
 
-// The default LumenPnP's actual X-axis travel limit (a software soft limit
-// on how far a jog can push the gantry) - distinct from BUILD_PLATES'
-// smaller paste-able/no-go-zone-aware extents in job.js, which are about
-// where boards can be drawn/pasted, not the gantry's own hard stops.
-// Jogging past this would just grind the X axis into its own limit.
-const MAX_TRAVEL_X_MM = 400;
-
 // Shrinks a relative jog delta (± dist) so current + delta lands within
 // [minMm, maxMm], using the last-polled machine position (see
 // setupMachinePositionPoll()) as "current" - or returns delta unchanged if
@@ -756,6 +749,24 @@ function clampJogDelta(posElementId, delta, maxMm, minMm = 0){
   if (target > maxMm) return maxMm - current;
   if (target < minMm) return minMm - current;
   return delta;
+}
+
+// Optimistically advances the displayed/tracked position by `delta` right
+// after a jog is actually SENT - not left to wait for the next ~1s position
+// poll (setupMachinePositionPoll()) to catch up. Without this, clicking the
+// same jog button again quickly (well within that ~1s) clamps against the
+// same stale pre-jog reading every time: e.g. 5mm from the limit, clamped
+// jog sent, but the display still reads the old position, so the very next
+// click computes "5mm left" again and sends another 5mm move on top of the
+// one that already landed at the limit - pushing the machine past its real
+// position and straight into the firmware's own soft endstop, which is
+// what was producing the little "hit the limit and bounce back" each time.
+// The next real poll tick still resyncs this to ground truth regardless.
+function trackJogDelta(posElementId, delta){
+  const posEl = document.getElementById(posElementId);
+  const current = parseFloat(posEl?.textContent);
+  if (!Number.isFinite(current)) return;
+  posEl.textContent = (current + delta).toFixed(2);
 }
 
 function getJogDistance(){
@@ -779,25 +790,33 @@ function getJogDistance(){
 
 document.getElementById("jog-yp").addEventListener("click", () => {
   let dist = getJogDistance();
-  serial.send(["G91", `G0 Y${dist} F${currentJob.motionSpeed}`, "G90"]);
+  const clamped = clampJogDelta('machinePosY', dist, currentJob.maxTravelYMm);
+  if (Math.abs(clamped) < 0.0001) return; // already at/past the limit - nothing to send
+  trackJogDelta('machinePosY', clamped);
+  serial.send(["G91", `G0 Y${clamped} F${currentJob.motionSpeed}`, "G90"]);
 });
 
 document.getElementById("jog-ym").addEventListener("click", () => {
   let dist = getJogDistance();
-  serial.send(["G91", `G0 Y-${dist} F${currentJob.motionSpeed}`, "G90"]);
+  const clamped = clampJogDelta('machinePosY', -dist, currentJob.maxTravelYMm);
+  if (Math.abs(clamped) < 0.0001) return;
+  trackJogDelta('machinePosY', clamped);
+  serial.send(["G91", `G0 Y${clamped} F${currentJob.motionSpeed}`, "G90"]);
 });
 
 document.getElementById("jog-xp").addEventListener("click", () => {
   let dist = getJogDistance();
-  const clamped = clampJogDelta('machinePosX', dist, MAX_TRAVEL_X_MM);
+  const clamped = clampJogDelta('machinePosX', dist, currentJob.maxTravelXMm);
   if (Math.abs(clamped) < 0.0001) return; // already at/past the limit - nothing to send
+  trackJogDelta('machinePosX', clamped);
   serial.send(["G91", `G0 X${clamped} F${currentJob.motionSpeed}`, "G90"]);
 });
 
 document.getElementById("jog-xm").addEventListener("click", () => {
   let dist = getJogDistance();
-  const clamped = clampJogDelta('machinePosX', -dist, MAX_TRAVEL_X_MM);
+  const clamped = clampJogDelta('machinePosX', -dist, currentJob.maxTravelXMm);
   if (Math.abs(clamped) < 0.0001) return;
+  trackJogDelta('machinePosX', clamped);
   serial.send(["G91", `G0 X${clamped} F${currentJob.motionSpeed}`, "G90"]);
 });
 
@@ -1100,7 +1119,11 @@ document.getElementById("home-y").addEventListener("click", () => {
 });
 
 document.getElementById("home-z").addEventListener("click", () => {
-  serial.send(["G28 Z"]);
+  // G28 Z alone just lands wherever this machine's own Z endstop happens to
+  // sit (often close to the very top of travel, not a useful working
+  // height) - the Homed Z Height field (Global settings tab) is where the
+  // head should actually end up afterward, so move there once homing's done.
+  serial.send(["G28 Z", "G90", `G0 Z${currentJob.homedZHeightMm} F${currentJob.motionSpeed}`]);
 });
 
 document.getElementById('getRoughBoardPosition').addEventListener('click', async () => {
