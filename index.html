@@ -49,12 +49,12 @@
     <div id="top-controls">
       <input type="file" id="jobFile" accept=".json" style="display: none;" />
       <input type="file" id="gerberFiles" accept=".zip,.gbr,.ger,.gtp,.gbp,.gts,.gbs,.pho,.art" multiple style="display: none;" />
-      <button id="importJob" class="goldenrod-button" type="button">Import Job</button>
-      <button id="importGerber" class="goldenrod-button" type="button">Import Gerber</button>
-      <button id="setupChecklistToggle" type="button" class="goldenrod-button">Setup Checklist</button>
-      <select id="camera-select"></select>
-      <button id="connect" type="button">Connect</button>
-      <button id="disconnect" type="button">Disconnect</button>
+      <button id="importJob" class="goldenrod-button" type="button" data-tooltip="Load a previously exported job (.json). Picks up right where it left off, calibration included.">Import Job</button>
+      <button id="importGerber" class="goldenrod-button" type="button" data-tooltip="Start a new job from gerber files. The paste layer is required; mask, outline, and drill files are used too if included.">Import Gerber</button>
+      <button id="setupChecklistToggle" type="button" class="goldenrod-button" data-tooltip="Open the step-by-step setup checklist">Setup Checklist</button>
+      <select id="camera-select" data-tooltip="Which connected camera feed to show and use for fiducial/nozzle calibration"></select>
+      <button id="connect" type="button" data-tooltip="Connect to the LumenPnP over USB">Connect</button>
+      <button id="disconnect" type="button" data-tooltip="Disconnect from the LumenPnP">Disconnect</button>
     </div>
   </div>
 
@@ -165,35 +165,38 @@
             <div class="positions-header">
               <h2>Job Positions</h2>
               <span id="gerberImportStatus"></span>
-              <button id="getRoughBoardPosition" class="goldenrod-button">Get Rough Board Position</button>
+              <button id="getRoughBoardPosition" class="goldenrod-button" data-tooltip="Jog to each fiducial (or 3 designated pads), then to the board surface, so the machine has a rough idea where this board sits. Perform Fid Cal then refines that starting point.">Get Rough Board Position</button>
 
-              <button id="performFidCal" class="goldenrod-button">Perform Fid Cal</button>
-              <button id="nozzleOffsetCal" class="goldenrod-button">Nozzle Offset Cal</button>
-              <button id="captureNewPos" class="goldenrod-button">Capture New Position</button>
+              <button id="performFidCal" class="goldenrod-button" data-tooltip="Auto-centers the camera on each fiducial for a precise board position. Needs a rough position set first.">Perform Fid Cal</button>
+              <button id="nozzleOffsetCal" class="goldenrod-button" data-tooltip="Calibrates the offset between the camera's view and the nozzle tip. Jog the camera onto a fiducial, then jog the nozzle onto that same spot.">Nozzle Offset Cal</button>
+              <button id="captureNewPos" class="goldenrod-button" data-tooltip="Records the machine's current position as a new manual dispense point on the active board.">Capture New Position</button>
               <div class="select-all-none">
-                <button id="selectAllComponents" class="goldenrod-button" type="button">Select All</button>
-                <button id="selectNoneComponents" class="goldenrod-button" type="button">Select None</button>
+                <button id="selectAllComponents" class="goldenrod-button" type="button" data-tooltip="Enable every pad on this board for the next run">Select All</button>
+                <button id="selectNoneComponents" class="goldenrod-button" type="button" data-tooltip="Disable every pad on this board for the next run">Select None</button>
               </div>
             </div>
             <div class="settings-row board-offsets-row" title="Nozzle offset for whichever board tab is active below - each board keeps its own">
               <div class="setting-item">
-                <label>X Offset: <span id="x-offset-value">0.0mm</span></label>
+                <label for="x-offset-input">X Offset (mm):</label>
                 <div class="offset-tool">
                   <button id="x-offset-down" class="goldenrod-button">-</button>
+                  <input type="number" id="x-offset-input" step="0.1" value="0.0" data-tooltip="Type an exact X offset in mm and press Enter or click away. Jogs the tip by the difference so the physical position stays in sync.">
                   <button id="x-offset-up" class="goldenrod-button">+</button>
                 </div>
               </div>
               <div class="setting-item">
-                <label>Y Offset: <span id="y-offset-value">0.0mm</span></label>
+                <label for="y-offset-input">Y Offset (mm):</label>
                 <div class="offset-tool">
                   <button id="y-offset-down" class="goldenrod-button">-</button>
+                  <input type="number" id="y-offset-input" step="0.1" value="0.0" data-tooltip="Type an exact Y offset in mm and press Enter or click away. Jogs the tip by the difference so the physical position stays in sync.">
                   <button id="y-offset-up" class="goldenrod-button">+</button>
                 </div>
               </div>
               <div class="setting-item">
-                <label>Z Offset: <span id="z-offset-value">0.0mm</span></label>
+                <label for="z-offset-input">Z Offset (mm):</label>
                 <div class="offset-tool">
                   <button id="z-offset-down" class="goldenrod-button">▼</button>
+                  <input type="number" id="z-offset-input" step="0.1" value="0.0" data-tooltip="Type an exact Z offset in mm and press Enter or click away. Jogs the tip by the difference so the physical position stays in sync.">
                   <button id="z-offset-up" class="goldenrod-button">▲</button>
                 </div>
               </div>
@@ -215,7 +218,7 @@
           <div class="gerber-visualization-container">
             <div class="build-plate-controls">
               <label for="buildPlateSelect">Build Plate:</label>
-              <select id="buildPlateSelect">
+              <select id="buildPlateSelect" data-tooltip="Which build plate this job is drawn/pasted for. Pick Custom for a machine or setup that isn't one of the presets.">
                 <option value="standard" selected>Standard (390 x 240mm)</option>
                 <option value="extended">Extended (390 x 330mm)</option>
                 <option value="custom">Custom</option>
@@ -253,18 +256,18 @@
         <div class="panel-body">
         <div class="settings-section">
           <div class="settings-tabs">
-            <button type="button" class="settings-tab-btn active" id="settingsTabBasic" data-tab-panel="basicSettingsPanel">Basic</button>
-            <button type="button" class="settings-tab-btn" id="settingsTabGlobal" data-tab-panel="globalSettingsPanel">Global</button>
-            <button type="button" class="settings-tab-btn" id="settingsTabGrid" data-tab-panel="gridSettingsPanel">Grid</button>
-            <button type="button" class="settings-tab-btn" id="settingsTabLine" data-tab-panel="lineSettingsPanel">Line</button>
-            <button type="button" class="settings-tab-btn" id="settingsTabStaggered" data-tab-panel="staggeredSettingsPanel">Staggered</button>
+            <button type="button" class="settings-tab-btn active" id="settingsTabBasic" data-tab-panel="basicSettingsPanel" data-tooltip="The everyday tuning knobs: stencil, nozzle, and dispense-degrees calibration">Basic</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabGlobal" data-tab-panel="globalSettingsPanel" data-tooltip="Speeds, currents, Z heights, travel limits, and pre/post gcode. Applies across every pattern and board in this job.">Global</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabGrid" data-tab-panel="gridSettingsPanel" data-tooltip="Thresholds/spacing for the grid dot pattern (large open pads)">Grid</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabLine" data-tab-panel="lineSettingsPanel" data-tooltip="Thresholds/spacing for the line dot pattern (elongated pads)">Line</button>
+            <button type="button" class="settings-tab-btn" id="settingsTabStaggered" data-tab-panel="staggeredSettingsPanel" data-tooltip="Thresholds/spacing for staggered dots on fine-pitch/tight-pitch pads">Staggered</button>
           </div>
 
           <div id="basicSettingsPanel">
           <h2>Extruder Settings</h2>
           <div class="settings-row">
-            <div class="setting-item">
-              <label for="jobStencilThicknessPreset" title="Which solder stencil thickness this board is equivalent to - pick a preset, or choose Custom to type an exact value.">Solder Stencil Thickness Equivalent:</label>
+            <div class="setting-item" data-tooltip="Which solder stencil thickness this board is equivalent to. Pick a preset, or choose Custom to type an exact value.">
+              <label for="jobStencilThicknessPreset">Solder Stencil Thickness Equivalent:</label>
               <div class="preset-select-row">
                 <select id="jobStencilThicknessPreset">
                   <option value="0.1">0.10mm</option>
@@ -276,8 +279,8 @@
                 <input type="number" id="jobStencilThicknessMm" min="0.01" max="1" step="0.01" value="0.12" title="Stencil thickness (mm) - exact custom value" hidden />
               </div>
             </div>
-            <div class="setting-item">
-              <label for="jobNozzleGaugePreset" title="Which dispense nozzle is mounted - a narrower (higher gauge number) nozzle needs more auger rotation for the same paste volume, so this scales the suggested dispense degrees below.">Dispense Nozzle:</label>
+            <div class="setting-item" data-tooltip="Which dispense nozzle is mounted. A narrower (higher gauge number) nozzle needs more auger rotation for the same paste volume, so this scales the suggested dispense degrees below.">
+              <label for="jobNozzleGaugePreset">Dispense Nozzle:</label>
               <div class="preset-select-row">
                 <select id="jobNozzleGaugePreset">
                   <option value="20">20GA</option>
@@ -289,28 +292,28 @@
             </div>
           </div>
           <div class="settings-row">
-            <div class="setting-item">
-              <label for="jobDispenseMultiplier" title="Multiplier applied on top of the suggested 0402 dispense degrees for the stencil thickness and nozzle selected above - 1.0 uses that suggestion as-is. Bump this up/down and re-test to calibrate for your actual stencil/paste/tip combo.">Dispense Multiplier:</label>
+            <div class="setting-item" data-tooltip="Multiplier applied on top of the suggested 0402 dispense degrees for the stencil thickness and nozzle selected above. A value of 1.0 uses that suggestion as-is; bump it up or down and re-test to calibrate for your actual stencil/paste/tip combo.">
+              <label for="jobDispenseMultiplier">Dispense Multiplier:</label>
               <input type="number" id="jobDispenseMultiplier" min="0.01" step="0.01" value="1" />
             </div>
-            <div class="setting-item hw-plunger-only">
-              <label for="jobRetractionDeg" title="Paste Extruder V1 Beta only - how far the plunger backs off after each dispense to reduce stringing/ooze">Retraction Degrees:</label>
+            <div class="setting-item hw-plunger-only" data-tooltip="Paste Extruder V1 Beta only. How far the plunger backs off after each dispense to reduce stringing/ooze.">
+              <label for="jobRetractionDeg">Retraction Degrees:</label>
               <input type="number" id="jobRetractionDeg" min="0" max="200" value="5" />
             </div>
-            <div class="setting-item hw-plunger-only">
-              <label for="jobDwellMs" title="Paste Extruder V1 Beta only - how long to pause after retracting so the paste finishes flowing before moving on">Dwell Milliseconds:</label>
+            <div class="setting-item hw-plunger-only" data-tooltip="Paste Extruder V1 Beta only. How long to pause after retracting so the paste finishes flowing before moving on.">
+              <label for="jobDwellMs">Dwell Milliseconds:</label>
               <input type="number" id="jobDwellMs" min="0" max="5000" value="100" />
             </div>
           </div>
           <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
             <div class="setting-item">
-              <label for="jobInvertDispense" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <label for="jobInvertDispense" style="display: flex; align-items: center; gap: 6px; cursor: pointer;" data-tooltip="Reverses the auger/plunger direction convention. Use this if paste dispenses (or retracts) backwards on your hardware.">
                 <input type="checkbox" id="jobInvertDispense" style="margin: 0;" />
                 <span>Invert Dispense</span>
               </label>
             </div>
             <div class="setting-item">
-              <button class="goldenrod-button" id="purgeAuger" type="button">Purge Auger</button>
+              <button class="goldenrod-button" id="purgeAuger" type="button" data-tooltip="Runs the auger by itself for a set duration to clear or prime it. Pump stays on throughout, and it's stoppable mid-purge.">Purge Auger</button>
             </div>
           </div>
           </div>
@@ -325,24 +328,24 @@
               Job Positions panel.
             </p>
             <div class="settings-row">
-              <div class="setting-item">
+              <div class="setting-item" data-tooltip="Feedrate (mm/min) for XY travel moves between dispense points. Doesn't affect the extrude move itself.">
                 <label for="jobMotionSpeed">Motion Speed (mm/min):</label>
                 <input type="number" id="jobMotionSpeed" min="1" max="50000" value="35000" />
               </div>
-              <div class="setting-item">
+              <div class="setting-item" data-tooltip="Feedrate (mm/min) for the extrude move itself, separate from XY travel speed above">
                 <label for="jobExtruderSpeed">Extruder Speed (mm/min):</label>
                 <input type="number" id="jobExtruderSpeed" min="1" max="200000" value="100000" />
               </div>
-              <div class="setting-item">
-                <label for="jobMotorCurrent" title="Auger stepper current while dispensing paste">Pasting Motor Current (mA):</label>
+              <div class="setting-item" data-tooltip="Auger stepper current while dispensing paste">
+                <label for="jobMotorCurrent">Pasting Motor Current (mA):</label>
                 <input type="number" id="jobMotorCurrent" min="0" max="2000" step="10" value="450" />
               </div>
-              <div class="setting-item">
+              <div class="setting-item" data-tooltip="Air-assist pump strength as a percentage. Retunable live, even mid-run.">
                 <label for="jobVacuumPressure">Air Assist: <span id="jobVacuumPressureValue">100</span>%</label>
                 <input type="range" id="jobVacuumPressure" min="0" max="100" value="100" step="1" />
               </div>
-              <div class="setting-item">
-                <label for="jobTravelHeight" title="Z height the nozzle rests at while moving between pads during a run">Travel Height (mm):</label>
+              <div class="setting-item" data-tooltip="Z height the nozzle rests at while moving between pads during a run">
+                <label for="jobTravelHeight">Travel Height (mm):</label>
                 <input type="number" id="jobTravelHeight" min="0" max="50" step="0.1" value="31.5" />
               </div>
               <div class="setting-item" data-tooltip="Z height the nozzle moves to right after Home Z finishes homing.
@@ -351,21 +354,21 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
                 <label for="jobHomedZHeight">Homed Z Height (mm):</label>
                 <input type="number" id="jobHomedZHeight" step="0.1" value="31.5" />
               </div>
-              <div class="setting-item">
-                <label for="jobMaxTravelX" title="Software soft limit on how far an X jog can push the gantry - jogging past this would just grind the axis into its own physical hard stop.">Max Travel X (mm):</label>
+              <div class="setting-item" data-tooltip="Software soft limit on how far an X jog can push the gantry. Jogging past this would just grind the axis into its own physical hard stop.">
+                <label for="jobMaxTravelX">Max Travel X (mm):</label>
                 <input type="number" id="jobMaxTravelX" min="1" step="1" value="400" />
               </div>
-              <div class="setting-item">
-                <label for="jobMaxTravelY" title="Software soft limit on how far a Y jog can push the gantry - jogging past this would just grind the axis into its own physical hard stop.">Max Travel Y (mm):</label>
+              <div class="setting-item" data-tooltip="Software soft limit on how far a Y jog can push the gantry. Jogging past this would just grind the axis into its own physical hard stop.">
+                <label for="jobMaxTravelY">Max Travel Y (mm):</label>
                 <input type="number" id="jobMaxTravelY" min="1" step="1" value="330" />
               </div>
             </div>
             <div class="settings-row" style="margin-top: 15px; justify-content: space-around;">
-              <div class="setting-item" style="flex: 1;">
+              <div class="setting-item" style="flex: 1;" data-tooltip="Extra gcode sent once before the very first dispense point in a run">
                 <label for="jobPreGcode">Pre-gcode:</label>
                 <textarea id="jobPreGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the start of the job (one per line)"></textarea>
               </div>
-              <div class="setting-item" style="flex: 1;">
+              <div class="setting-item" style="flex: 1;" data-tooltip="Extra gcode sent once after the last dispense point. Runs whether the job finishes or is cancelled.">
                 <label for="jobPostGcode">Post-gcode:</label>
                 <textarea id="jobPostGcode" rows="4" style="width: 100%; font-family: monospace; resize: vertical; padding: 8px;" placeholder="G-code commands to run at the end of the job (one per line)"></textarea>
               </div>
@@ -388,34 +391,34 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
             </p>
             <div class="advanced-settings-group">
               <div class="settings-row">
-                <div class="setting-item">
-                  <label for="advElongatedAspectRatio" title="Length:width ratio a pad must clear to be treated as elongated (line pattern) instead of a single dot">Elongated Aspect Ratio:</label>
+                <div class="setting-item" data-tooltip="Length:width ratio a pad must clear to be treated as elongated (line pattern) instead of a single dot">
+                  <label for="advElongatedAspectRatio">Elongated Aspect Ratio:</label>
                   <input type="number" id="advElongatedAspectRatio" min="1" step="0.1" value="2.2" />
                 </div>
-                <div class="setting-item">
-                  <label for="advElongatedMinLengthMm" title="Minimum pad length (mm) to be treated as elongated">Elongated Min Length (mm):</label>
+                <div class="setting-item" data-tooltip="Minimum pad length (mm) to be treated as elongated">
+                  <label for="advElongatedMinLengthMm">Elongated Min Length (mm):</label>
                   <input type="number" id="advElongatedMinLengthMm" min="0" step="0.05" value="0.6" />
                 </div>
-                <div class="setting-item">
-                  <label for="advMinLineWidthMm" title="Below this pad width (mm), a pad never splits into a line of dots">Min Line Width (mm):</label>
+                <div class="setting-item" data-tooltip="Below this pad width (mm), a pad never splits into a line of dots">
+                  <label for="advMinLineWidthMm">Min Line Width (mm):</label>
                   <input type="number" id="advMinLineWidthMm" min="0" step="0.05" value="0.3" />
                 </div>
-                <div class="setting-item">
-                  <label for="advDotPitchMm" title="Spacing (mm) between dots along an elongated pad's line pattern">Dot Pitch (mm):</label>
+                <div class="setting-item" data-tooltip="Spacing (mm) between dots along an elongated pad's line pattern">
+                  <label for="advDotPitchMm">Dot Pitch (mm):</label>
                   <input type="number" id="advDotPitchMm" min="0.1" step="0.05" value="0.9" />
                 </div>
-                <div class="setting-item">
-                  <label for="advPadEdgeInsetMm" title="How far (mm) a line pattern's dots stay inset from the pad edge">Pad Edge Inset (mm):</label>
+                <div class="setting-item" data-tooltip="How far (mm) a line pattern's dots stay inset from the pad edge">
+                  <label for="advPadEdgeInsetMm">Pad Edge Inset (mm):</label>
                   <input type="number" id="advPadEdgeInsetMm" min="0" step="0.05" value="0.3" />
                 </div>
-                <div class="setting-item">
-                  <label for="advElongatedVolumeMultiplier" title="Extra paste volume multiplier for elongated (line-pattern) pads">Elongated Volume Multiplier:</label>
+                <div class="setting-item" data-tooltip="Extra paste volume multiplier for elongated (line-pattern) pads">
+                  <label for="advElongatedVolumeMultiplier">Elongated Volume Multiplier:</label>
                   <input type="number" id="advElongatedVolumeMultiplier" min="0" step="0.05" value="1.3" />
                 </div>
               </div>
             </div>
             <div class="button-row">
-              <button class="goldenrod-button reset-advanced-settings-alias" type="button">Reset to Defaults</button>
+              <button class="goldenrod-button reset-advanced-settings-alias" type="button" data-tooltip="Resets the Grid/Line/Staggered pad-classification thresholds only. Doesn't touch the speed/current/travel settings on the Basic/Global tabs.">Reset to Defaults</button>
             </div>
           </div>
 
@@ -432,22 +435,22 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
             </p>
             <div class="advanced-settings-group">
               <div class="settings-row">
-                <div class="setting-item">
-                  <label for="advPowerPadMinAreaMm2" title="Pad area (mm²) at or above which a pad gets a grid of dots instead of one dot/line">Grid Pad Min Area (mm²):</label>
+                <div class="setting-item" data-tooltip="Pad area (mm²) at or above which a pad gets a grid of dots instead of one dot/line">
+                  <label for="advPowerPadMinAreaMm2">Grid Pad Min Area (mm²):</label>
                   <input type="number" id="advPowerPadMinAreaMm2" min="0" step="0.1" value="4.0" />
                 </div>
-                <div class="setting-item">
-                  <label for="advGridDotPitchMm" title="Spacing (mm) between dots in a grid pattern">Grid Dot Pitch (mm):</label>
+                <div class="setting-item" data-tooltip="Spacing (mm) between dots in a grid pattern">
+                  <label for="advGridDotPitchMm">Grid Dot Pitch (mm):</label>
                   <input type="number" id="advGridDotPitchMm" min="0.1" step="0.05" value="1.5" />
                 </div>
-                <div class="setting-item">
-                  <label for="advGridEdgeInsetMm" title="How far (mm) a grid pattern's outer dots stay inset from the pad edge">Grid Edge Inset (mm):</label>
+                <div class="setting-item" data-tooltip="How far (mm) a grid pattern's outer dots stay inset from the pad edge">
+                  <label for="advGridEdgeInsetMm">Grid Edge Inset (mm):</label>
                   <input type="number" id="advGridEdgeInsetMm" min="0" step="0.05" value="0.8" />
                 </div>
               </div>
             </div>
             <div class="button-row">
-              <button class="goldenrod-button reset-advanced-settings-alias" type="button">Reset to Defaults</button>
+              <button class="goldenrod-button reset-advanced-settings-alias" type="button" data-tooltip="Resets the Grid/Line/Staggered pad-classification thresholds only. Doesn't touch the speed/current/travel settings on the Basic/Global tabs.">Reset to Defaults</button>
             </div>
           </div>
 
@@ -465,26 +468,26 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
             </p>
             <div class="advanced-settings-group">
               <div class="settings-row">
-                <div class="setting-item">
-                  <label for="advTightPitchGapMm" title="Edge-to-edge gap (mm) under which neighboring pads are treated as fine-pitch/tight-pitch">Tight-Pitch Gap (mm):</label>
+                <div class="setting-item" data-tooltip="Edge-to-edge gap (mm) under which neighboring pads are treated as fine-pitch/tight-pitch">
+                  <label for="advTightPitchGapMm">Tight-Pitch Gap (mm):</label>
                   <input type="number" id="advTightPitchGapMm" min="0" step="0.05" value="0.35" />
                 </div>
-                <div class="setting-item">
-                  <label for="advTightPitchMaxPadWidthMm" title="Pads wider than this (mm) are never treated as tight-pitch, no matter how close a neighbor sits">Tight-Pitch Max Pad Width (mm):</label>
+                <div class="setting-item" data-tooltip="Pads wider than this (mm) are never treated as tight-pitch, no matter how close a neighbor sits">
+                  <label for="advTightPitchMaxPadWidthMm">Tight-Pitch Max Pad Width (mm):</label>
                   <input type="number" id="advTightPitchMaxPadWidthMm" min="0" step="0.05" value="1.0" />
                 </div>
-                <div class="setting-item">
-                  <label for="advStaggerOffsetFraction" title="Stagger spacing: how far (as a fraction of the pad's own half-length) a tight-pitch pad's single dot is nudged off-center, alternating direction pad-to-pad">Stagger Spacing:</label>
+                <div class="setting-item" data-tooltip="Stagger spacing: how far (as a fraction of the pad's own half-length) a tight-pitch pad's single dot is nudged off-center, alternating direction pad-to-pad">
+                  <label for="advStaggerOffsetFraction">Stagger Spacing:</label>
                   <input type="number" id="advStaggerOffsetFraction" min="0" max="1" step="0.05" value="0.45" />
                 </div>
-                <div class="setting-item">
-                  <label for="advTightPitchVolumeMultiplier" title="Extra paste volume multiplier applied only to staggered/tight-pitch pads, independent of the elongated multiplier above">Stagger Paste Multiplier:</label>
+                <div class="setting-item" data-tooltip="Extra paste volume multiplier applied only to staggered/tight-pitch pads, independent of the elongated multiplier above">
+                  <label for="advTightPitchVolumeMultiplier">Stagger Paste Multiplier:</label>
                   <input type="number" id="advTightPitchVolumeMultiplier" min="0" step="0.05" value="0.4" />
                 </div>
               </div>
             </div>
             <div class="button-row">
-              <button class="goldenrod-button reset-advanced-settings-alias" type="button">Reset to Defaults</button>
+              <button class="goldenrod-button reset-advanced-settings-alias" type="button" data-tooltip="Resets the Grid/Line/Staggered pad-classification thresholds only. Doesn't touch the speed/current/travel settings on the Basic/Global tabs.">Reset to Defaults</button>
             </div>
           </div>
         </div>
@@ -496,8 +499,8 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
         <div class="panel-body">
         <div class="settings-section">
           <div class="button-row">
-            <button id="exportJob" class="goldenrod-button">Export Job</button>
-            <button id="runJob" class="goldenrod-button">Run Job</button>
+            <button id="exportJob" class="goldenrod-button" data-tooltip="Save this job (boards, calibration, and settings) to a .json file for later">Export Job</button>
+            <button id="runJob" class="goldenrod-button" data-tooltip="Slices and runs the whole job now, covering every board and only pads that are still enabled">Run Job</button>
             <button id="resumeJob" class="goldenrod-button" title="Continue the last run from the point it stopped at, instead of pasting every pad again from the start" hidden>Resume Job</button>
           </div>
           <div id="jobRunTime" class="job-run-time"></div>
@@ -516,12 +519,12 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
           <div class="video-feed-viewport">
             <canvas id="opencv-canvas"></canvas>
           </div>
-          <div class="camera-scale-row">
-            <label for="cameraPxPerMm" title="How many camera pixels correspond to 1mm on the board at this camera's current working distance/zoom - used to scale fiducial jogs and size fiducial detection. Retune this if you swap cameras, lenses, or focus height; it takes effect immediately.">Camera Scale (px/mm):</label>
+          <div class="camera-scale-row" data-tooltip="How many camera pixels correspond to 1mm on the board at this camera's current working distance/zoom. Used to scale fiducial jogs and size fiducial detection. Retune this if you swap cameras, lenses, or focus height; it takes effect immediately.">
+            <label for="cameraPxPerMm">Camera Scale (px/mm):</label>
             <input type="number" id="cameraPxPerMm" min="1" step="1" value="42" />
           </div>
-          <div class="camera-scale-row">
-            <label for="fiducialConfidence" title="How strong a circle's edge evidence has to be to count as a fiducial detection. Lower catches more real fiducials in poor lighting/focus but lets more false positives (silkscreen, pads) through too; higher is the reverse.">Fiducial Confidence: <span id="fiducialConfidenceValue">33</span></label>
+          <div class="camera-scale-row" data-tooltip="How strong a circle's edge evidence has to be to count as a fiducial detection. Lower catches more real fiducials in poor lighting/focus but lets more false positives (silkscreen, pads) through too; higher is the reverse.">
+            <label for="fiducialConfidence">Fiducial Confidence: <span id="fiducialConfidenceValue">33</span></label>
             <input type="range" id="fiducialConfidence" min="10" max="80" step="1" value="33" />
           </div>
         </div>
@@ -539,41 +542,41 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
         </div>
 
         <div class="control-row">
-          <button id="process-button" class="goldenrod-button">Jog to Fid in View</button>
-          <button id="homing-fid-button" class="goldenrod-button">Visual Home</button>
+          <button id="process-button" class="goldenrod-button" data-tooltip="Jogs so the fiducial currently visible in the camera view ends up centered">Jog to Fid in View</button>
+          <button id="homing-fid-button" class="goldenrod-button" data-tooltip="Homes X/Y then jogs to this machine's first known fiducial location">Visual Home</button>
         </div>
 
         <div class="control-buttons">
           <div class="control-row">
-            <button id="home-x">Home X</button>
-            <button id="home-y">Home Y</button>
-            <button id="home-z">Home Z</button>
+            <button id="home-x" data-tooltip="Homes the X axis (G28 X)">Home X</button>
+            <button id="home-y" data-tooltip="Homes the Y axis (G28 Y)">Home Y</button>
+            <button id="home-z" data-tooltip="Homes the Z axis, then moves to the Homed Z Height set on the Global settings tab">Home Z</button>
           </div>
         </div>
 
         <div class="jog-controls">
           <div class="jog-buttons">
             <div class="jog-row">
-              <button id="jog-yp" class="goldenrod-button">Y+</button>
+              <button id="jog-yp" class="goldenrod-button" data-tooltip="Jog +Y by the step size below">Y+</button>
             </div>
             <div class="jog-row">
-              <button id="jog-xm" class="goldenrod-button">X-</button>
+              <button id="jog-xm" class="goldenrod-button" data-tooltip="Jog -X by the step size below">X-</button>
 
-              <button id="jog-xp" class="goldenrod-button">X+</button>
+              <button id="jog-xp" class="goldenrod-button" data-tooltip="Jog +X by the step size below">X+</button>
             </div>
             <div class="jog-row">
-              <button id="jog-ym" class="goldenrod-button">Y-</button>
+              <button id="jog-ym" class="goldenrod-button" data-tooltip="Jog -Y by the step size below">Y-</button>
             </div>
             <div class="jog-row">
-              <button id="jog-zm" class="goldenrod-button">Z+</button>
-              <button id="jog-zp" class="goldenrod-button">Z-</button>
+              <button id="jog-zm" class="goldenrod-button" data-tooltip="Moves the nozzle UP, away from the bed, by the step size below">Z+</button>
+              <button id="jog-zp" class="goldenrod-button" data-tooltip="Moves the nozzle DOWN, closer to the bed, by the step size below">Z-</button>
             </div>
             <div class="jog-row">
-              <button class="goldenrod-button" id="extrude-btn">Extrude</button>
+              <button class="goldenrod-button" id="extrude-btn" data-tooltip="Manually extrudes (or retracts, if Invert Dispense is on) by the step size below, in degrees. Pump stays on throughout.">Extrude</button>
             </div>
           </div>
           <div class="jog-slider-container">
-            <input type="range" id="jog-distance" min="1" max="4" value="2" step="1" list="jog-distances">
+            <input type="range" id="jog-distance" min="1" max="4" value="2" step="1" list="jog-distances" data-tooltip="Step size used by every jog button and Extrude above">
             <datalist id="jog-distances">
               <option value="1">100mm</option>
               <option value="2">10mm</option>
@@ -590,18 +593,18 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
         <div class="panel-drag-handle" title="Drag to reorder">⠿⠿⠿</div>
         <div class="panel-body">
         <div class="control-row" style="margin-top:15px;">
-          <button id="ring-lights-toggle">Ring Lights: Off</button>
+          <button id="ring-lights-toggle" data-tooltip="Toggles the camera ring light">Ring Lights: Off</button>
         </div>
 
         <div class="control-row">
-          <button id="left-air-toggle">Left Air: Off</button>
-          <button id="right-air-toggle">Right Air: Off</button>
-          <button id="left-vac">Left Vac</button>
-          <button id="right-vac">Right Vac</button>
+          <button id="left-air-toggle" data-tooltip="Manually toggles the left-side fan/air output, independent of a run">Left Air: Off</button>
+          <button id="right-air-toggle" data-tooltip="Manually toggles the paste-side positive-pressure air assist (the same channel used while dispensing)">Right Air: Off</button>
+          <button id="left-vac" data-tooltip="Reads the left vacuum sensor's current value">Left Vac</button>
+          <button id="right-vac" data-tooltip="Reads the right vacuum sensor's current value">Right Vac</button>
         </div>
 
         <div class="control-row">
-          <button id="disable-steppers">Disable Steppers</button>
+          <button id="disable-steppers" data-tooltip="Releases holding current on every stepper (M18). The machine can be moved by hand until it's homed again">Disable Steppers</button>
         </div>
         </div>
       </div>
@@ -613,8 +616,8 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
           <h3>Console</h3>
           <div id="console"></div>
           <div id="repl-bottom-row">
-            <input id="repl-input" type="text" placeholder="Send Gcode" />
-            <button id="send" type="button" class="goldenrod-button">Send</button>
+            <input id="repl-input" type="text" placeholder="Send Gcode" data-tooltip="Type raw gcode to send directly to the machine" />
+            <button id="send" type="button" class="goldenrod-button" data-tooltip="Sends the gcode typed to the left">Send</button>
           </div>
         </div>
         </div>
@@ -641,7 +644,7 @@ Smaller number = nozzle ends up HIGHER, farther from the bed.">
 
   <div id="toast">
     <p id="toast-content">test</p>
-    <button id="toast-close" class="btn-close">➡️</button>
+    <button id="toast-close" class="btn-close">✕</button>
   </div>
 
 

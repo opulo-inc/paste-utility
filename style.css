@@ -1051,19 +1051,28 @@ button:disabled {
 input[type="text"],
 input[type="number"],
 input[type="file"],
-select {
+select,
+textarea {
+  /* color set explicitly alongside background-color, always - this pair had
+     no color of its own before, so every one of these silently inherited
+     :root's near-white default text color instead. Invisible (white text on
+     this white background) unless something else was fixing it, which is
+     exactly what a display-level dark-mode/inversion filter does - turn
+     that filter off and the real, broken contrast shows through. */
   padding: 0.75rem;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
   font-family: "Nunito", sans-serif;
   font-size: 0.9rem;
+  color: var(--text-color);
   background-color: var(--secondary-bg);
   transition: all 0.2s ease;
 }
 
 input[type="text"]:focus,
 input[type="number"]:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   border-color: var(--button-bg);
   box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
@@ -1139,8 +1148,14 @@ select:focus {
 
 #toast-close {
   background-color: red;
-  width:40px;
-  height:40px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 0;
 }
 
 
@@ -1581,6 +1596,13 @@ select:focus {
 .offset-tool button {
   padding: 0.4rem 0.9rem;
   flex: 1;
+}
+
+.offset-tool input[type="number"] {
+  width: 4.5rem;
+  flex: none;
+  padding: 0.4rem;
+  text-align: center;
 }
 
 .goldenrod-button {
@@ -2205,21 +2227,21 @@ body.dragging-popup {
    element (a .setting-item wrapper, a button, a label, ...) to get a
    custom-styled popup instead of the browser's own native title tooltip,
    which is slow to appear, small, and easy to miss - use one or the other
-   on a given element, not both, or they'll show up stacked. `position:
-   relative` is set generically below (on the [data-tooltip] element itself)
-   so the tooltip's `position: absolute` anchors there rather than some
-   distant ancestor. white-space: pre-line below means an actual line break
-   typed into the attribute value in the HTML source (or an &#10; entity)
-   renders as one, so a multi-line explanation needs no extra markup. */
-[data-tooltip] {
-  position: relative;
-}
+   on a given element, not both, or they'll show up stacked.
 
-[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 9px);
-  left: 0;
+   This used to be a pure-CSS ::before/::after pair positioned absolute
+   relative to the trigger element. That breaks for any trigger inside a
+   scrollable/resizable ancestor (.panel-body has overflow: auto), since
+   position: absolute gets clipped to the nearest ancestor whose overflow
+   isn't visible - no z-index can fix that. Instead, setupTooltips() in
+   main.js positions one shared element with position: fixed, appended to
+   document.body, computed from the trigger's getBoundingClientRect() on
+   hover/focus - that escapes every ancestor's overflow and stacking
+   context. white-space: pre-line means a line break typed into the
+   data-tooltip attribute (or an &#10; entity) renders as one, so a
+   multi-line explanation needs no extra markup. */
+.tooltip-popup {
+  position: fixed;
   background: #1a1a1a;
   color: #fff;
   padding: 7px 10px;
@@ -2235,30 +2257,30 @@ body.dragging-popup {
   visibility: hidden;
   pointer-events: none;
   transition: opacity 0.12s ease;
-  transition-delay: 0.05s;
-  z-index: 50;
+  z-index: 9999;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 
-[data-tooltip]::before {
-  content: '';
-  position: absolute;
-  bottom: calc(100% + 3px);
-  left: 14px;
+.tooltip-arrow {
+  position: fixed;
+  width: 0;
+  height: 0;
   border: 5px solid transparent;
   border-top-color: #1a1a1a;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transition: opacity 0.12s ease;
-  transition-delay: 0.05s;
-  z-index: 50;
+  z-index: 9999;
 }
 
-[data-tooltip]:hover::after,
-[data-tooltip]:hover::before,
-[data-tooltip]:focus-within::after,
-[data-tooltip]:focus-within::before {
+.tooltip-arrow.arrow-down {
+  border-top-color: transparent;
+  border-bottom-color: #1a1a1a;
+}
+
+.tooltip-popup.visible,
+.tooltip-arrow.visible {
   opacity: 1;
   visibility: visible;
 }

@@ -1012,24 +1012,52 @@ function adjustOffset(jobProperty, gcodeAxis, valueElementId, delta) {
   // tipXoffset/tipYoffset/zOffset are per-board (see the getters in job.js) -
   // this always adjusts whichever board's tab is currently active.
   currentJob[jobProperty] = Math.round((currentJob[jobProperty] + delta) * 10) / 10;
-  document.getElementById(valueElementId).textContent = `${currentJob[jobProperty].toFixed(1)}mm`;
+  document.getElementById(valueElementId).value = currentJob[jobProperty].toFixed(1);
   serial.send(["G91", `G0 ${gcodeAxis}${delta} F${currentJob.motionSpeed}`, "G90"]);
 }
 
+// Lets someone type an exact offset instead of only nudging by offsetStep.
+// Reuses adjustOffset()'s jog-and-store logic by computing the delta between
+// the typed value and the currently stored one, so the physical tip still
+// ends up in sync with the new number instead of the display silently
+// drifting from where the machine actually is.
+function applyTypedOffset(jobProperty, gcodeAxis, valueElementId) {
+  const el = document.getElementById(valueElementId);
+  const typed = parseFloat(el.value);
+  if (!Number.isFinite(typed)) {
+    el.value = currentJob[jobProperty].toFixed(1);
+    return;
+  }
+  const delta = Math.round((typed - currentJob[jobProperty]) * 10) / 10;
+  if (delta === 0) {
+    el.value = currentJob[jobProperty].toFixed(1);
+    return;
+  }
+  adjustOffset(jobProperty, gcodeAxis, valueElementId, delta);
+}
+
 document.getElementById("x-offset-up").addEventListener("click", () => {
-  adjustOffset("tipXoffset", "X", "x-offset-value", offsetStep);
+  adjustOffset("tipXoffset", "X", "x-offset-input", offsetStep);
 });
 
 document.getElementById("x-offset-down").addEventListener("click", () => {
-  adjustOffset("tipXoffset", "X", "x-offset-value", -offsetStep);
+  adjustOffset("tipXoffset", "X", "x-offset-input", -offsetStep);
+});
+
+document.getElementById("x-offset-input").addEventListener("change", () => {
+  applyTypedOffset("tipXoffset", "X", "x-offset-input");
 });
 
 document.getElementById("y-offset-up").addEventListener("click", () => {
-  adjustOffset("tipYoffset", "Y", "y-offset-value", offsetStep);
+  adjustOffset("tipYoffset", "Y", "y-offset-input", offsetStep);
 });
 
 document.getElementById("y-offset-down").addEventListener("click", () => {
-  adjustOffset("tipYoffset", "Y", "y-offset-value", -offsetStep);
+  adjustOffset("tipYoffset", "Y", "y-offset-input", -offsetStep);
+});
+
+document.getElementById("y-offset-input").addEventListener("change", () => {
+  applyTypedOffset("tipYoffset", "Y", "y-offset-input");
 });
 
 // This machine's Z is inverted from typical printer convention: a positive Z
@@ -1037,11 +1065,19 @@ document.getElementById("y-offset-down").addEventListener("click", () => {
 // the dispense move comments in job.js slice()). So "up" sends a negative
 // delta and "down" sends a positive one, to match the on-screen button labels.
 document.getElementById("z-offset-up").addEventListener("click", () => {
-  adjustOffset("zOffset", "Z", "z-offset-value", -offsetStep);
+  adjustOffset("zOffset", "Z", "z-offset-input", -offsetStep);
 });
 
 document.getElementById("z-offset-down").addEventListener("click", () => {
-  adjustOffset("zOffset", "Z", "z-offset-value", offsetStep);
+  adjustOffset("zOffset", "Z", "z-offset-input", offsetStep);
+});
+
+document.getElementById("z-offset-input").addEventListener("change", () => {
+  // zOffset is stored as the raw accumulated gcode Z delta (adjustOffset()
+  // above adds delta to it directly) - only the ▲/▼ button LABELS are
+  // inverted from their gcode sign, not the stored value itself. So typing a
+  // value needs the same typed-minus-stored delta math as X/Y, no inversion.
+  applyTypedOffset("zOffset", "Z", "z-offset-input");
 });
 
 // Air control
@@ -1488,3 +1524,88 @@ function setupMachinePositionPoll(){
 }
 
 setupMachinePositionPoll();
+
+// See the .tooltip-popup/.tooltip-arrow comment in style.css for why this
+// is JS-positioned (position: fixed) instead of a pure-CSS ::after/::before
+// pair: fixed positioning escapes clipping from scrollable ancestors like
+// .panel-body, which absolute positioning can't do.
+function setupTooltips() {
+  const triggers = document.querySelectorAll('[data-tooltip]');
+  if (!triggers.length) return;
+
+  const tip = document.createElement('div');
+  tip.className = 'tooltip-popup';
+  const arrow = document.createElement('div');
+  arrow.className = 'tooltip-arrow';
+  document.body.appendChild(tip);
+  document.body.appendChild(arrow);
+
+  const margin = 8;
+  let activeTrigger = null;
+
+  function position(trigger) {
+    const text = trigger.getAttribute('data-tooltip');
+    if (!text) return;
+    tip.textContent = text;
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+
+    let left = triggerRect.left;
+    if (left + tipRect.width > window.innerWidth - margin) {
+      left = window.innerWidth - tipRect.width - margin;
+    }
+    if (left < margin) left = margin;
+
+    let top = triggerRect.top - tipRect.height - 9;
+    let below = false;
+    if (top < margin) {
+      top = triggerRect.bottom + 9;
+      below = true;
+    }
+
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+
+    const arrowLeft = Math.min(
+      Math.max(triggerRect.left + 14, margin),
+      window.innerWidth - margin
+    );
+    arrow.style.left = `${arrowLeft}px`;
+    arrow.classList.toggle('arrow-down', below);
+    arrow.style.top = below ? `${triggerRect.bottom - 1}px` : `${triggerRect.top - 9}px`;
+  }
+
+  function show(trigger) {
+    activeTrigger = trigger;
+    tip.classList.add('visible');
+    arrow.classList.add('visible');
+    position(trigger);
+  }
+
+  function hide() {
+    activeTrigger = null;
+    tip.classList.remove('visible');
+    arrow.classList.remove('visible');
+  }
+
+  triggers.forEach((el) => {
+    el.addEventListener('mouseenter', () => show(el));
+    el.addEventListener('mouseleave', hide);
+    el.addEventListener('focus', () => show(el));
+    el.addEventListener('blur', hide);
+  });
+
+  // A scrolled ancestor panel moves the trigger without firing mouseleave,
+  // so re-run the position math (capture: scroll events don't bubble).
+  window.addEventListener(
+    'scroll',
+    () => {
+      if (activeTrigger) position(activeTrigger);
+    },
+    true
+  );
+  window.addEventListener('resize', hide);
+}
+
+setupTooltips();

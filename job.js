@@ -593,12 +593,12 @@ export class Job {
     // performTipCalibration()), since these are per-board now rather than
     // one job-wide value that never needed re-displaying on a tab switch.
     updateOffsetDisplay(){
-        const xEl = document.getElementById('x-offset-value');
-        const yEl = document.getElementById('y-offset-value');
-        const zEl = document.getElementById('z-offset-value');
-        if (xEl) xEl.textContent = `${this.tipXoffset.toFixed(1)}mm`;
-        if (yEl) yEl.textContent = `${this.tipYoffset.toFixed(1)}mm`;
-        if (zEl) zEl.textContent = `${this.zOffset.toFixed(1)}mm`;
+        const xEl = document.getElementById('x-offset-input');
+        const yEl = document.getElementById('y-offset-input');
+        const zEl = document.getElementById('z-offset-input');
+        if (xEl) xEl.value = this.tipXoffset.toFixed(1);
+        if (yEl) yEl.value = this.tipYoffset.toFixed(1);
+        if (zEl) zEl.value = this.zOffset.toFixed(1);
     }
 
     // True while a board's rough-position/fid-cal flow is in progress (see
@@ -1184,7 +1184,7 @@ export class Job {
                 ctx.font = "11px Nunito, sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                ctx.fillText("No-Go Zone", noGoX + noGoW / 2, noGoYTop + noGoH / 2);
+                ctx.fillText("Keep Clear", noGoX + noGoW / 2, noGoYTop + noGoH / 2);
             }
             ctx.restore();
         }
@@ -2025,7 +2025,11 @@ export class Job {
             // grab z pos and add .2 mm or something
             let zPos = await this.lumen.grabBoardPosition();
 
-            await this.lumen.serial.send([`G0 Z${this.travelHeight}`]);
+            // This is the flow's last hardware move - park at the user's
+            // configured Homed Z Height rather than travelHeight, so the head
+            // ends up somewhere they actually chose instead of wherever this
+            // flow's intermediate clearance height happens to be.
+            await this.lumen.serial.send([`G0 Z${this.homedZHeightMm}`]);
 
             zPos = parseFloat(zPos[2]) + 0.2;
 
@@ -2103,15 +2107,15 @@ export class Job {
             );
             if (!proceed) {
                 // Nozzle is currently down near the fiducial - lift it back to
-                // a safe travel height before bailing out, same as the normal
+                // the Homed Z Height before bailing out, same as the normal
                 // completion path does further down.
-                await this.lumen.serial.send([`G0 Z${this.travelHeight}`]);
+                await this.lumen.serial.send([`G0 Z${this.homedZHeightMm}`]);
                 return;
             }
 
             const nozPos = await this.lumen.grabBoardPosition();
 
-            await this.lumen.serial.send([`G0 Z${this.travelHeight}`]);
+            await this.lumen.serial.send([`G0 Z${this.homedZHeightMm}`]);
 
             board.tipXoffset = nozPos[0] - camPos[0];
             board.tipYoffset = nozPos[1] - camPos[1];
@@ -2182,6 +2186,12 @@ export class Job {
             // plane forward onto the now camera-precise calX/calY basis instead
             // of the rougher jogged-position one it was fit against before.
             this.applyFiducialZTransform(board);
+
+            // fid cal otherwise never sends a Z move at all, so the head was
+            // just left wherever the last jogToFiducial() camera-centering
+            // step happened to leave it - park at the user's configured
+            // Homed Z Height instead, same as findBoardRoughPosition() does.
+            await this.lumen.serial.send([`G0 Z${this.homedZHeightMm}`]);
 
             console.log("fid cal complete: ", board.fiducials);
 
@@ -3456,7 +3466,12 @@ export class Job {
             await this.lumen.serial.send(["M106 P3", "G4 P500", "M107 P3"]);
         }
 
-        await this.lumen.serial.send([`G0 Z${this.travelHeight} F10000`]);
+        // Parks at the user's configured Homed Z Height (not travelHeight) -
+        // this fires whether the run finished normally or was cancelled, and
+        // in both cases the run is actually OVER, so the head should end up
+        // at the same "idle" height the Home Z button and the calibration
+        // flows park at, not the mid-job travel height.
+        await this.lumen.serial.send([`G0 Z${this.homedZHeightMm} F10000`]);
         await this.lumen.serial.send(["G0 X5 Y5"]);
         await this.lumen.serial.send(["G0 F35000"]);
     }
