@@ -75,7 +75,19 @@ const NO_GO_ZONE_MM = { width: 90, height: 120 };
 // below uses that difference (not the raw calibrated offset, which is
 // dominated by this ~70mm nominal separation and would barely move for any
 // real bend) as the direction a bent nozzle actually leans.
-const NOZZLE_PREDICTED_OFFSET_MM = { x: -20, y: 67 };
+//
+// This differs by hardware version because the V1 Beta (syringe-plunger) and
+// V2 (auger) dispensers mount the tip in a physically different spot
+// relative to the camera. 'v1-beta' (-45, 63) is carried over unchanged from
+// the original, pre-auger paste utility software's own tip calibration flow
+// (its performTipCalibration() jogged by this exact amount, before this app
+// ever supported more than one piece of hardware); 'v2' (-20, 67) is this
+// app's own value for the current auger dispenser. See the
+// Job.nozzlePredictedOffsetMm getter below for how this is looked up.
+const NOZZLE_PREDICTED_OFFSET_MM_BY_HARDWARE_VERSION = {
+    'v1-beta': { x: -45, y: 63 },
+    'v2': { x: -20, y: 67 },
+};
 
 // toast.receivedInput sentinel for "switch to picking pads instead of
 // fiducial candidates" - see showToastWithButton()/pickPadsAsFiducials().
@@ -585,6 +597,15 @@ export class Job {
 
     get zOffset(){ return this.activeBoard.zOffset; }
     set zOffset(v){ this.activeBoard.zOffset = v; }
+
+    // The nominal camera-to-nozzle offset for whichever hardware is
+    // currently selected - see NOZZLE_PREDICTED_OFFSET_MM_BY_HARDWARE_VERSION
+    // above. Falls back to 'v2' for any unrecognized value so this never
+    // returns undefined.
+    get nozzlePredictedOffsetMm(){
+        return NOZZLE_PREDICTED_OFFSET_MM_BY_HARDWARE_VERSION[this.hardwareVersion]
+            || NOZZLE_PREDICTED_OFFSET_MM_BY_HARDWARE_VERSION['v2'];
+    }
 
     // Refreshes the X/Y/Z Offset readout (see index.html's offset-tool
     // controls, in the Job Positions panel) to the ACTIVE board's own
@@ -2098,7 +2119,7 @@ export class Job {
 
             await this.lumen.serial.send([`G0 Z${this.travelHeight}`]);
 
-            await this.lumen.serial.goToRelative(NOZZLE_PREDICTED_OFFSET_MM.x, NOZZLE_PREDICTED_OFFSET_MM.y);
+            await this.lumen.serial.goToRelative(this.nozzlePredictedOffsetMm.x, this.nozzlePredictedOffsetMm.y);
 
             await this.lumen.serial.send(["G0 Z48"]);
 
@@ -3090,9 +3111,9 @@ export class Job {
     // reaching back over already-dispensed points to get there.
     //
     // The lean direction itself is tipXoffset/tipYoffset MINUS
-    // NOZZLE_PREDICTED_OFFSET_MM, not the raw calibrated offset - that raw
+    // this.nozzlePredictedOffsetMm, not the raw calibrated offset - that raw
     // value is dominated by the ~70mm nominal camera-to-nozzle mounting
-    // separation (see NOZZLE_PREDICTED_OFFSET_MM), which points the same
+    // separation (see nozzlePredictedOffsetMm), which points the same
     // fixed machine-relative direction on every board regardless of which
     // way any given nozzle is actually bent. Subtracting it out leaves just
     // the real tip's divergence from that nominal geometry - the part that's
@@ -3103,11 +3124,11 @@ export class Job {
         // Not calibrated yet (still at createEmptyBoard()'s 0/0 default) -
         // checked against the raw offset, not the residual below, since a
         // never-calibrated board would otherwise look like it has a huge
-        // "lean" equal to -NOZZLE_PREDICTED_OFFSET_MM.
+        // "lean" equal to -this.nozzlePredictedOffsetMm.
         if (board.tipXoffset === 0 && board.tipYoffset === 0) return points;
 
-        const lx = board.tipXoffset - NOZZLE_PREDICTED_OFFSET_MM.x;
-        const ly = board.tipYoffset - NOZZLE_PREDICTED_OFFSET_MM.y;
+        const lx = board.tipXoffset - this.nozzlePredictedOffsetMm.x;
+        const ly = board.tipYoffset - this.nozzlePredictedOffsetMm.y;
         const mag = Math.hypot(lx, ly);
         if (mag === 0) return points; // calibrated exactly to the nominal offset - no measurable bend
 
